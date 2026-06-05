@@ -15,22 +15,25 @@ Existing benchmarks cover parts of this space but not the whole picture:
 
 ## Benchmark Design
 
-### Three-Level Task Hierarchy
+### Results-Driven Evaluation
+
+We evaluate agents by **measured performance outcomes**, not by code similarity to reference solutions. Each task provides an unoptimized baseline — the agent's job is to make it faster while preserving correctness. Even if an agent memorizes open-source code, what matters is whether its optimization achieves real speedup.
+
+### Two-Level Task Hierarchy
 
 | Level | Focus | # Tasks | What it tests |
 |-------|-------|---------|---------------|
-| **L1: Analysis & Decision** | Profiling interpretation, bottleneck identification, strategy selection | 10-15 | Does the agent *understand* inference optimization? |
-| **L2: Implementation** | Kernel writing, quantization, system components | 10-15 | Can the agent *implement* known optimization techniques? |
+| **L2: Implementation** | Optimize specific kernels, algorithms, or system components | 10-15 | Can the agent write faster code given a baseline? |
 | **L3: End-to-End Optimization** | Full optimization pipeline on real models | 5-8 | Can the agent *independently optimize* a real inference workload? |
 
 ### Evaluation Metrics
 
 | Dimension | Metric | Description |
 |-----------|--------|-------------|
-| Correctness | pass@k | Generated code matches reference output |
-| Performance | Speedup ratio | Acceleration over baseline |
+| Correctness | Numerical equivalence | Optimized output matches baseline output |
+| Performance | Speedup ratio | `baseline_time / optimized_time` |
+| Quality | MMLU-Pro gate | Model accuracy stays within tolerance |
 | Efficiency | Interaction rounds | How many rounds the agent needs |
-| Decision quality | Strategy accuracy | For L1 analysis tasks |
 
 ## Documentation
 

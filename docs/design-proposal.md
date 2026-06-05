@@ -15,23 +15,13 @@ MLSysBench evaluates LLMs and AI agents on **full-stack LLM inference optimizati
 
 ## 2. Task Hierarchy
 
-### Level 1: Analysis & Decision (10-15 tasks)
+### Level 2 tasks subsume analysis ability
 
-Tests whether the agent *understands* inference optimization.
+In an earlier design, we had a separate "Level 1: Analysis & Decision" layer with multiple-choice questions about profiling and strategy selection. We removed it because:
 
-**Example tasks**:
-1. Given profiling data (nsight trace), identify whether a kernel is memory-bound or compute-bound
-2. Given model parameters and hardware specs, estimate VRAM usage and theoretical throughput ceiling
-3. Given a scenario (model + hardware + SLO), select the optimal quantization strategy
-4. Given two serving configurations, predict which achieves lower P99 latency and explain why
-5. Analyze a Roofline plot and recommend which optimization class to pursue
-6. Given a MoE model's expert activation statistics, recommend expert parallelism strategy
-7. Estimate KV cache memory at different batch sizes and sequence lengths
-8. Given a multi-GPU setup, recommend TP vs PP vs TP+PP configuration with justification
-9. Identify optimization opportunities from a Transformer block's kernel timeline
-10. Given an inference throughput regression, diagnose the root cause from logs
-
-**Evaluation**: Multiple-choice or structured response; graded by correctness of analysis and strategy selection.
+1. **Analysis ability is already tested by L2 and L3** — an agent that can't interpret profiling data won't achieve speedup in L2/L3 tasks.
+2. **Results-driven evaluation is more meaningful** — we don't need to separately test "does the agent know what memory-bound means" if we can directly measure "does the agent optimize memory-bound kernels effectively."
+3. **Avoids the ground-truth problem** — analysis questions require curated correct answers, which adds maintenance burden and potential for ambiguity.
 
 ### Level 2: Implementation (10-15 tasks)
 
@@ -67,32 +57,49 @@ Tests whether the agent can *independently optimize* a real inference workload t
 
 **Evaluation**: Correctness + Speedup ratio + Number of interaction rounds + Quality of intermediate analysis.
 
-## 3. Evaluation Framework
+## 3. Evaluation Philosophy
+
+### Results-Driven, Not Code-Matching
+
+MLSysBench evaluates agents by **measured performance outcomes**, not by comparing generated code against reference solutions. This is a deliberate design choice:
+
+- **No ground truth code**: We provide baselines (unoptimized starting points), not reference solutions. The agent's job is to make the code faster, not to reproduce a known implementation.
+- **Correctness = numerical equivalence**: The optimized code must produce outputs that match the baseline's outputs (within floating-point tolerance), not match any specific implementation.
+- **Performance = measured speedup**: The only thing that matters is actual latency/throughput improvement on real hardware.
+
+This design naturally **eliminates data contamination concerns** — even if the agent has memorized vLLM source code, what matters is whether its optimization actually achieves measurable speedup. Memorization that leads to better performance is a feature, not a bug.
+
+```
+What we provide:          What we measure:
+├── Baseline code         ├── Correctness (output matches baseline numerically)
+├── Hardware access       ├── Speedup (baseline_time / optimized_time)
+├── Profiling tools       ├── Throughput (optimized_rps / baseline_rps)
+├── Model weights         ├── Quality gate (MMLU-Pro accuracy ≥ 0.95× baseline)
+└── Time budget           └── Efficiency (rounds needed to achieve target)
+```
 
 ### Metrics
 
 | Metric | Level | Description |
 |--------|-------|-------------|
-| **Correctness** (pass@k) | L2, L3 | Output matches reference implementation on randomized inputs |
+| **Correctness** | L2, L3 | Optimized output matches baseline output on randomized inputs |
 | **Speedup ratio** | L2, L3 | `baseline_latency / optimized_latency` |
 | **Throughput gain** | L3 | `optimized_throughput / baseline_throughput` |
-| **Decision accuracy** | L1 | Fraction of analysis/strategy questions answered correctly |
-| **Interaction efficiency** | L2, L3 | Number of agent rounds to achieve target speedup |
 | **Quality preservation** | L3 | Output quality (perplexity, accuracy) remains within tolerance |
+| **Interaction efficiency** | L2, L3 | Number of agent rounds to achieve target speedup |
 
 ### Composite Score
 
 ```
-MLSysBench Score = w1 × L1_accuracy + w2 × L2_score + w3 × L3_score
+MLSysBench Score = w1 × L2_score + w2 × L3_score
 
 where:
-  L1_accuracy = correct_analyses / total_analyses
-  L2_score = Σ (correctness_i × min(speedup_i / target_speedup_i, 1.0)) / N
-  L3_score = Σ (correctness_i × speedup_i × efficiency_bonus_i) / M
-  efficiency_bonus = 1.0 + max(0, 1.0 - rounds / max_rounds)  # bonus for fewer rounds
+  L2_score = Σ (correct_i × speedup_i) / N
+  L3_score = Σ (correct_i × speedup_i × quality_gate_i × efficiency_bonus_i) / M
+  efficiency_bonus = 1.0 + max(0, 1.0 - rounds / max_rounds)
 ```
 
-Suggested weights: w1=0.2, w2=0.4, w3=0.4 (implementation and E2E matter most).
+Suggested weights: w1=0.4, w2=0.6 (E2E optimization matters most).
 
 ## 4. Agent Interface
 
@@ -149,17 +156,30 @@ class MLSysBenchEnvironment:
 
 ## 6. Dataset Construction
 
-### Source of Tasks
-1. **Adapted from competitions**: Simplified versions of MLSys/ASPLOS competition tasks
-2. **Extracted from frameworks**: Real optimization PRs from vLLM, SGLang, TensorRT-LLM repos
-3. **Expert-designed**: Custom tasks designed by systems researchers
-4. **Profiling-based**: Real profiling traces from production workloads
+### What Each Task Provides
+
+Every task ships a **baseline** (the unoptimized starting point) and a **correctness oracle** (a way to verify numerical equivalence). No ground truth implementation is needed.
+
+```
+task/
+├── baseline.py          # Unoptimized PyTorch implementation (the starting point)
+├── correctness_check.py # Compares optimized output against baseline output
+├── benchmark.py         # Measures latency/throughput with proper timing
+├── config.yaml          # Model, hardware requirements, time budget, quality gate
+└── README.md            # Task description, constraints, what "optimization" means here
+```
+
+### Source of Baselines
+1. **PyTorch eager execution**: The simplest correct implementation (e.g., standard attention, naive GEMM)
+2. **Default framework configs**: vLLM/SGLang with default settings (for L3 serving tasks)
+3. **Simplified competition starting points**: Adapted from MLSys/ASPLOS competition baselines
+4. **Expert-designed unoptimized code**: Custom baselines for novel task scenarios
 
 ### Quality Assurance
-- Each task has a verified reference solution with known speedup
-- Multiple difficulty ratings validated by expert panel
-- Baseline implementations provided as starting points
-- Test cases cover edge cases (varying sequence lengths, batch sizes, dtypes)
+- Each baseline is verified to produce correct outputs
+- Baseline performance is measured on target hardware as the denominator for speedup
+- Correctness checks use randomized inputs with appropriate tolerances per dtype
+- Tasks cover varying sequence lengths, batch sizes, and dtypes to prevent shape-hardcoding
 
 ## 7. Roadmap
 
