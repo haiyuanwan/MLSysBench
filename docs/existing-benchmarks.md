@@ -2,7 +2,37 @@
 
 Benchmarks that evaluate LLMs/AI agents on code optimization, kernel writing, and performance engineering.
 
-## 1. GPU Kernel Generation
+## 1. Agent-Level Inference Optimization Benchmarks
+
+### InferenceBench (aisa-group, Agents Workshop 2026)
+
+- **Paper**: Agents Workshop 2026
+- **Repo**: https://github.com/aisa-group/InferenceBench
+- **Website**: https://inferencebench.ai
+- **Task**: Evaluate AI coding agents' ability to deploy and optimize LLM inference serving. Given an agent a base model (Mistral-7B), a single H100, and a 2-hour time budget, the agent must deploy an OpenAI-compatible inference server and maximize performance.
+- **4 Scenarios**: (A) Prefill latency/TTFT, (B) Decode latency/TPOT, (C) Throughput/req/s, (D) Composite/geomean
+- **Quality gate**: MMLU-Pro accuracy threshold + anti-cheating integrity audit
+- **Scale**: Evaluated 15 frontier agents — Claude Sonnet 4.6 (#1), GLM-5 (#2), Gemini 3.1 Pro (#3), GPT-5.3 Codex (#4)
+- **Key findings**: Non-agent search (Random/SMAC3/TPE) beats all agents within 2 hours; 93.9% of agent runs use vLLM; agents do "shallow search" and fail to retain best configurations
+- **Limitations**:
+  - Focuses on serving deployment and hyperparameter tuning — does not test kernel writing, quantization algorithm implementation, or system component development
+  - Single model (Mistral-7B) only
+  - Does not evaluate analysis/decision-making ability (profiling interpretation, bottleneck identification)
+  - No algorithm-level tasks (speculative decoding, KV cache optimization, etc.)
+
+### PerfCodeBench (2026)
+
+- **Paper**: [arXiv:2605.15222](https://arxiv.org/abs/2605.15222)
+- **Task**: Benchmark LLMs for system-level high-performance code optimization, including parallelization and GPU operations
+- **Key findings**: Measures gap between LLM-generated code and human expert optimizations
+- **Limitations**:
+  - General system-level code optimization, not specific to LLM inference
+  - No agent multi-round interaction
+  - Does not cover inference-specific techniques (speculative decoding, KV cache, quantization)
+
+---
+
+## 2. GPU Kernel Generation & Optimization
 
 ### KernelBench (Stanford, ICML 2025)
 
@@ -23,9 +53,53 @@ Benchmarks that evaluate LLMs/AI agents on code optimization, kernel writing, an
   - Performance depends on specific hardware
   - Does not cover system-level optimization
 
+### AgentKernelArena (AMD / GPU MODE, 2026)
+
+- **Paper**: [arXiv:2605.16819](https://arxiv.org/abs/2605.16819)
+- **Task**: Evaluate complete AI agent workflows on GPU kernel optimization with generalization testing
+- **Dataset**: 196 tasks covering HIP-to-HIP, Triton-to-Triton, PyTorch-to-HIP transformations
+- **Metrics**: Compilation, correctness, performance grading; unseen-configuration generalization tests
+- **Scale**: Tested Cursor Agent, Claude Code, Codex Agent and other real agents
+- **Limitations**: Kernel-layer only; no algorithm-level or system-level tasks; no analysis/decision evaluation
+
+### FastKernels (Snowflake / CMU, 2026)
+
+- **Paper**: [arXiv:2605.23215](https://arxiv.org/abs/2605.23215)
+- **Task**: Production-aligned GPU kernel generation benchmark covering 46 representative architectures (96.2% of HuggingFace Transformers)
+- **Key findings**: Best kernel agent achieves only 0.94x aggregate speedup (slower than production baselines), exposing benchmark-to-production gap
+- **Limitations**: Kernel-layer only; focuses on the benchmark-production alignment problem
+
+### KernelBenchX (Tsinghua THUNLP, 2026)
+
+- **Paper**: [arXiv:2605.04956](https://arxiv.org/abs/2605.04956)
+- **Repo**: https://github.com/BonnieW05/KernelBenchX
+- **Task**: 176 Triton kernel tasks across 15 categories, evaluating buildability, correctness, and hardware efficiency
+- **Key findings**: 46.6% of correct kernels are slower than PyTorch eager; quantization tasks completely unsolved (0/30)
+- **Limitations**: Triton kernel generation only; not agent evaluation
+
+### MultiKernelBench (Nanjing University, 2025)
+
+- **Repo**: https://github.com/wzzll123/MultiKernelBench
+- **Task**: Cross-platform kernel generation across CUDA, Triton, AscendC, TileLang, Pallas, SYCL — covering NVIDIA GPU, Huawei Ascend NPU, Google TPU, Intel GPU
+- **Limitations**: Kernel generation only; broadest hardware coverage but no system-level optimization
+
+### TritonBench (Tsinghua THUNLP, ACL 2025)
+
+- **Paper**: [arXiv:2502.14752](https://arxiv.org/abs/2502.14752)
+- **Repo**: https://github.com/thunlp/TritonBench
+- **Task**: 184 real Triton operators, two evaluation tracks (TritonBench-G and TritonBench-T)
+- **Limitations**: Triton operator generation only
+
+### SOL-ExecBench (NVIDIA, 2026)
+
+- **Paper**: [arXiv:2603.19173](https://arxiv.org/abs/2603.19173)
+- **Repo**: https://github.com/NVIDIA/SOL-ExecBench
+- **Task**: 235 real DL kernel problems on NVIDIA B200, scored by SOL-Score (percentage of theoretical roofline)
+- **Limitations**: Evaluates kernel solutions, not agents; no system-level optimization
+
 ---
 
-## 2. Source Code Performance Optimization
+## 3. Source Code Performance Optimization
 
 ### PIE — Performance-Improving Edits (ICLR 2024 Spotlight)
 
@@ -81,7 +155,7 @@ Benchmarks that evaluate LLMs/AI agents on code optimization, kernel writing, an
 
 ---
 
-## 3. Parallel Computing & HPC
+## 4. Parallel Computing & HPC
 
 ### ParEval (UMD, HPDC 2024)
 
@@ -98,7 +172,7 @@ Benchmarks that evaluate LLMs/AI agents on code optimization, kernel writing, an
 
 ---
 
-## 4. Compiler Optimization
+## 5. Compiler Optimization
 
 ### CompilerGym (Meta, CGO 2022 Distinguished Paper)
 
@@ -115,14 +189,34 @@ Benchmarks that evaluate LLMs/AI agents on code optimization, kernel writing, an
 
 ---
 
-## 5. Summary & Research Gaps
+## 6. Summary & Differentiation
 
-| Dimension | Coverage | Gap |
-|-----------|----------|-----|
-| Kernel generation | KernelBench ✓ | No Triton-specific or NKI benchmark |
-| Source-level optimization | PIE, ECCO, EffiBench ✓ | Only competitive programming / LeetCode |
-| Parallel code | ParEval ✓ | Not inference-specific |
-| Compiler optimization | CompilerGym, LLM Compiler ✓ | LLVM IR only, not runtime |
-| **System-level optimization** | **None** | No benchmark for scheduling, parallelism config, memory management |
-| **Agent multi-round optimization** | **ECCO partially** | No benchmark for profile → analyze → implement → verify loops |
-| **End-to-end inference optimization** | **None** | No benchmark combining kernel + algorithm + system |
+### Landscape Overview
+
+| Benchmark | Year | Evaluates Agent? | Kernel | Algorithm | System | Inference-Specific |
+|-----------|------|-----------------|--------|-----------|--------|--------------------|
+| **InferenceBench** | 2026 | Yes | No | No | Config tuning | Yes (serving) |
+| **AgentKernelArena** | 2026 | Yes | Yes | No | No | No |
+| **PerfCodeBench** | 2026 | No | Partial | No | Partial | No |
+| KernelBench | 2025 | No | Yes | No | No | No |
+| KernelBenchX | 2026 | No | Yes (Triton) | No | No | No |
+| FastKernels | 2026 | Partial | Yes | No | No | Partial |
+| MultiKernelBench | 2025 | No | Yes (6 platforms) | No | No | No |
+| SOL-ExecBench | 2026 | No | Yes | No | No | No |
+| PIE | 2024 | No | No | No | No | No |
+| ECCO | 2024 | Partial | No | No | No | No |
+| ParEval | 2024 | No | Partial (CUDA) | No | No | No |
+| **MLSysBench (ours)** | **2026** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+
+### Research Gaps (Our Opportunity)
+
+| Dimension | Best Existing Coverage | Gap that MLSysBench Fills |
+|-----------|----------------------|--------------------------|
+| Kernel generation | KernelBench ecosystem (extensive) | We include kernel tasks but go beyond |
+| Serving config tuning | InferenceBench | We add kernel writing + algorithm implementation |
+| Agent kernel optimization | AgentKernelArena | We add algorithm + system layers |
+| Analysis & decision-making | **None** | Profiling interpretation, strategy selection |
+| Algorithm-level tasks | **None** | Quantization, speculative decoding, KV cache |
+| System-level tasks | **None** | Scheduling, parallelism config, memory management |
+| End-to-end optimization | InferenceBench (config only) | Full pipeline: profile → analyze → implement → verify |
+| Full-stack coverage | **None** | Kernel × Algorithm × System in one benchmark |
