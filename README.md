@@ -38,6 +38,8 @@ Existing benchmarks cover parts of this space but not the whole picture:
 - [Survey of Inference Optimization Competitions](docs/competitions.md)
 - [Inference Optimization Task Taxonomy](docs/task-taxonomy.md)
 - [Benchmark Design Proposal](docs/design-proposal.md)
+- [Data Sources & Task Construction](docs/data-sources.md)
+- [Evaluation Environment](docs/environment.md)
 
 ## Coverage
 
