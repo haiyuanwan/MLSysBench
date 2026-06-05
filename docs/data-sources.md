@@ -1,6 +1,63 @@
 # Data Sources & Task Construction
 
-How to build the MLSysBench dataset: where tasks come from, how reference solutions are validated, and licensing considerations.
+How to build the MLSysBench dataset: where tasks come from, how baselines are constructed, and why the task selection is representative.
+
+## 0. Design Principles
+
+### Results-Driven, Not Code-Matching
+
+MLSysBench evaluates agents by **measured performance outcomes**. Each task provides:
+- A **baseline** (unoptimized starting point) — written by us
+- A **correctness oracle** (numerical equivalence check) — automated
+- A **performance measurement** (timing infrastructure) — standardized
+
+No ground truth implementation is needed. Agents are free to optimize however they want.
+
+### Data-Driven Task Selection
+
+Task credibility comes from three pillars, not from the baseline code itself:
+
+```
+Pillar 1: Profiling      Pillar 2: Literature       Pillar 3: Community
+real workload profiling → published optimization  →  competition problems
+identifies bottlenecks    papers validate the gap     confirm practical relevance
+```
+
+### Task Construction Pipeline
+
+```
+Step 1                   Step 2                  Step 3                Step 4
+Profile real models  →   Identify bottlenecks →  Write naive baseline → Validate optimization
+on target hardware       by time percentage      (3-5 lines PyTorch)    space exists (cite lit)
+```
+
+Each task ships:
+```yaml
+task: fused_rmsnorm_residual
+source:
+  profiling: "Llama-3-8B decode, A100, batch=32 — RMSNorm+Add takes 12%"
+  literature: "Liger Kernel (BSD-2) fused impl achieves 2.1x"
+  competition: "GPU MODE PMPP series has similar task"
+baseline:
+  code: baseline.py    # naive PyTorch, written by us
+  perf: 0.42ms         # measured on target hardware
+known_ceiling:
+  best_oss: 0.20ms     # best known open-source (Liger Kernel)
+  theoretical: 0.15ms  # memory bandwidth bound
+```
+
+### How Competitions Build Their Baselines (Reference)
+
+| Competition | Baseline | Who Wrote It | Difficulty |
+|-------------|----------|-------------|------------|
+| AWS MoE (MLSys 2026) | Neuron SDK default compilation of PyTorch model | AWS Neuron team | Must beat compiler auto-optimization with hand-written NKI |
+| FlashInfer (MLSys 2026) | FlashInfer's own production kernels | FlashInfer team | Must beat already highly-optimized SOTA |
+| GPU MODE | 1-line PyTorch or naive Python loop | Community contributors | Maximum optimization headroom |
+| ASPLOS 2025 NKI | Neuron SDK default Llama 3.2 1B | AWS Neuron team | Same as AWS MoE but simpler model |
+
+MLSysBench follows a mix of GPU MODE (naive baselines for L2) and AWS NKI (framework defaults for L3).
+
+---
 
 ## 1. License Overview
 
@@ -23,189 +80,170 @@ All major sources use permissive licenses — code can be legally reused with at
 | Liger Kernel | BSD-2-Clause | Free to reuse |
 | MLPerf Inference | Apache-2.0 | Free to reuse |
 
-## 2. L1 Sources: Analysis & Decision Tasks
+## 2. Profiling-Driven Task Selection (Primary Methodology)
 
-### 2.1 Real Profiling Traces from Inference Frameworks
+The most credible way to select tasks: **profile real inference workloads, identify actual bottlenecks, and turn each bottleneck into an optimization task.**
 
-**Most valuable source.** Run vLLM/SGLang on standard models, collect profiling data, and create analysis questions.
+### 2.1 Profiling Setup
 
-**vLLM built-in benchmarks:**
-- `vllm bench serve`, `vllm bench throughput`, `vllm bench latency`
-- Run with different configs (batch size, seq_len, TP degree) and collect `torch.profiler` traces
-- Export Chrome trace JSON → create "identify the bottleneck" questions
+Profile 3 representative models × multiple configs on target hardware:
 
-**torch.profiler integration:**
-```python
+| Model | Architecture | Why |
+|-------|-------------|-----|
+| Qwen2.5-7B (Apache-2.0) | Dense, GQA 28Q/4KV, SwiGLU, RMSNorm | Most complete dense Transformer |
+| Mixtral-8x7B (Apache-2.0) | MoE, 8 experts, GQA | MoE-specific bottlenecks |
+| Mistral-7B-v0.3 (Apache-2.0) | Dense, GQA, SWA | Serving optimization (InferenceBench validated) |
+
+**Tools:**
+```bash
+# Kernel timeline
+nsys profile --trace=cuda,nvtx -o profile python run_inference.py
+nsys export --type=json profile.nsys-rep
+
+# Detailed kernel metrics
+ncu --set full --export ncu_output python run_kernel.py
+
+# Python-level profiling
+python -c "
+import torch
 with torch.profiler.profile(
-    activities=[torch.profiler.ProfilerActivity.CPU, 
-                torch.profiler.ProfilerActivity.CUDA],
+    activities=[torch.profiler.ProfilerActivity.CUDA],
     record_shapes=True, profile_memory=True
 ) as prof:
-    model(inputs)
-# Text output suitable for agent consumption
-print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+    model.generate(inputs, max_new_tokens=256)
+print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=20))
+"
 ```
 
-**Nsight Systems/Compute:**
+### 2.2 Expected Bottleneck → Task Mapping
+
+Based on published profiling studies and known optimization gaps:
+
+| Bottleneck | Time% (decode) | Optimization Gap | Literature Support | → Task |
+|-----------|---------------|-----------------|-------------------|--------|
+| Attention (GQA/MHA) | ~35% | FlashAttention achieves 2-4x | Dao 2022, arXiv:2205.14135 | Optimize attention kernel |
+| FFN GEMM | ~28% | W4A8 quantization 1.5-3x | AWQ, Lin 2024, MLSys Best Paper | Quantized matmul |
+| RMSNorm + Residual | ~12% | Fusion achieves 2x | Liger Kernel (LinkedIn, BSD-2) | Fused normalization kernel |
+| RoPE | ~5% | Fusion with attention 1.5x | Known optimization in vLLM/SGLang | Fused RoPE kernel |
+| KV Cache ops | ~8% | PagedAttention reduces 50% mem | Kwon, SOSP 2023 | KV cache management |
+| MoE routing + dispatch | ~15% (MoE) | Expert fusion 2-4x | Tsinghua NKI-MoE, MLSys 2026 1st | MoE kernel optimization |
+| Softmax | ~3% | Online softmax saves one pass | Milakov & Gimelshein 2018 | Fused online softmax |
+| Serving overhead | N/A | Continuous batching 2-5x | Sarathi-Serve, Agrawal 2024 | E2E serving optimization |
+
+**The profiling data itself is a paper contribution** — it answers "what matters most in inference optimization" with empirical evidence.
+
+### 2.3 Cross-Validation Sources
+
+Each task selection is validated against multiple independent sources:
+
+| Source | What it validates | Link |
+|--------|------------------|------|
+| **Competition problems** | Academic community agrees this is a meaningful challenge | MLSys/ASPLOS/GPU MODE |
+| **Framework changelogs** | Industry prioritizes this optimization | vLLM/SGLang release notes |
+| **Published papers** | Optimization gap is documented | See literature column above |
+| **MLPerf submissions** | Real-world competitive dimension | mlcommons.org |
+| **TRT-LLM tech blogs** | NVIDIA engineers optimize this in production | 17+ blogs in TRT-LLM repo |
+| **GPU MODE lectures** | Teaching community considers this essential | 106+ lectures, cuda-mode/lectures |
+
+---
+
+## 3. Baseline Construction
+
+### 3.1 Baseline Philosophy
+
+Baselines are **naive correct implementations we write ourselves**. They are NOT extracted from external sources, eliminating data contamination concerns entirely.
+
+Following competition conventions:
+- **L2 tasks**: PyTorch eager (like GPU MODE) — maximum optimization headroom
+- **L3 tasks**: Framework default config (like AWS NKI competitions) — realistic starting point
+
+### 3.2 L2 Baselines: Naive PyTorch
+
+Each L2 baseline is 3-10 lines of obvious PyTorch code:
+
+```python
+# Attention baseline — correct but unoptimized
+def attention_baseline(Q, K, V, mask=None):
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(Q.size(-1))
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, float('-inf'))
+    weights = torch.softmax(scores, dim=-1)
+    return torch.matmul(weights, V)
+
+# RMSNorm + Residual — two separate operations
+def rmsnorm_residual_baseline(x, residual, weight, eps=1e-6):
+    x = x + residual
+    norm = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)
+    return x * norm * weight
+
+# MoE — serial expert execution
+def moe_baseline(x, router_logits, experts):
+    weights = torch.softmax(router_logits, dim=-1)
+    top_k_weights, top_k_indices = weights.topk(2, dim=-1)
+    output = torch.zeros_like(x)
+    for i, expert in enumerate(experts):
+        mask = (top_k_indices == i).any(dim=-1)
+        if mask.any():
+            output[mask] += expert(x[mask]) * top_k_weights[mask, (top_k_indices[mask] == i).nonzero()[:, 1]]
+    return output
+```
+
+### 3.3 L3 Baselines: Framework Defaults
+
 ```bash
-nsys profile --trace=cuda,nvtx --output=profile python run_inference.py
-nsys export --type=json profile.nsys-rep  # parseable output
+# L3 serving baseline — vLLM with zero tuning
+vllm serve Qwen/Qwen2.5-7B --dtype float16
+# No quantization, no custom kernels, no config optimization
+
+# L3 inference baseline — naive PyTorch generate
+python -c "
+model = AutoModelForCausalLM.from_pretrained('Qwen/Qwen2.5-7B', torch_dtype=torch.float16)
+output = model.generate(input_ids, max_new_tokens=256)
+"
 ```
 
-**Example L1 tasks from profiling:**
-- Given Llama-3-8B torch.profiler trace on A100: Which kernel dominates? Is decode memory-bound or compute-bound?
-- Given vLLM throughput curves at different `max_num_seqs`: Why does throughput plateau?
-- Given TP4 vs TP2+PP2 performance data: Which config is better and why?
+### 3.4 Optimization Ceiling Reference
 
-### 2.2 TensorRT-LLM Technical Blog Series
+Each task documents a known performance ceiling from literature (NOT as ground truth, but to confirm optimization space exists and calibrate difficulty):
 
-NVIDIA's TensorRT-LLM repo contains 17+ deep-dive blogs at `docs/source/blogs/tech_blog/`. Each is a complete optimization case study with profiling data, Roofline analysis, and strategy decisions.
-
-| Blog Topic | Extractable L1 Tasks |
-|------------|---------------------|
-| Optimizing DeepSeek R1 on Blackwell | MLA weight absorb decision, DP vs TP, FP4 vs FP8 |
-| Scaling Expert Parallelism (3-part) | MoE parallelism strategy analysis |
-| Sparse Attention in TRT-LLM | Sparse attention pattern identification |
-| Disaggregated Serving | Prefill-decode separation decision |
-| N-Gram Speculative Decoding | Speculation strategy selection |
-| Tuning CUDA Graph Batch Sizes | Batch size tuning analysis |
-
-### 2.3 University Course Assignments
-
-**Stanford CS149 Assignment 5** (with GPU MODE):
-- https://github.com/stanford-cs149/asst5-kernels
-- Tasks: FlashAttention, SwiGLU kernels on H100
-- Students write work logs documenting profiling and optimization decisions — exactly L1 analysis
-
-**MIT 6.5940 EfficientML** (Han Song):
-- Labs on quantization (AWQ/GPTQ), pruning, distillation, efficient inference
-- AWQ (MIT) and GPTQ (Apache-2.0) code directly usable
-
-**GPU MODE Lecture Series** (106+ lectures):
-- https://github.com/cuda-mode/lectures
-- Key lectures for L1: #1 Profiling, #7 Quantization, #8 CUDA Perf Checklist, #12 Flash Attention, #16 Hands-on Profiling, #22 Speculative Decoding in vLLM, #35 SGLang Optimization
-
-### 2.4 MLPerf Submission Reports
-
-- 1,800+ peer-reviewed results in MLPerf Inference v5.0/v6.0
-- Repo: https://github.com/mlcommons/inference (Apache-2.0)
-- Task examples: Compare two submissions' configs and explain performance difference; predict Offline vs Server scenario performance
-
-### 2.5 SGLang / AMD / AWS Performance Blogs
-
-- SGLang: "7x Faster DeepSeek MLA", "25x on GB300 NVL72", "DeepSeek PD Disaggregation on 96 H100s"
-- AMD: "Supercharge DeepSeek-R1 on MI300X" via ROCm blog
-- AWS: Tsinghua's winning NKI-MoE code includes Report.pdf with detailed profiling
+| Difficulty | Baseline | Known Ceiling | Headroom | Purpose |
+|-----------|----------|---------------|----------|---------|
+| Easy | Naive Python loop | PyTorch vectorized | 10-100x | Verify basic competence |
+| Medium | PyTorch eager (cuBLAS) | Published optimized kernel | 1.5-5x | Main discriminator |
+| Hard | Default framework config | Tuned production setup | 1.2-2x | Separate top agents |
+| Expert | Optimized kernel | Hardware theoretical peak | <1.5x | Ceiling challenge |
 
 ---
 
-## 3. L2 Sources: Implementation Tasks
+## 4. Existing Resources (for reference, not as ground truth)
 
-### 3.1 Real PRs from vLLM/SGLang (Primary Source)
+These resources inform task design and validate optimization potential. They are NOT used as ground truth solutions.
 
-Extract self-contained, single-optimization PRs. Use the PR's baseline as the task starting point and the final code as reference solution.
+### 4.1 Known Optimization Implementations (Ceiling References)
 
-**vLLM Speculative Decoding PRs:**
+| Technique | Source | License | Role in MLSysBench |
+|-----------|--------|---------|-------------------|
+| FlashAttention | [Dao-AILab/flash-attention](https://github.com/Dao-AILab/flash-attention) | BSD-3 | Ceiling reference for attention tasks |
+| Liger Kernel | [linkedin/Liger-Kernel](https://github.com/linkedin/Liger-Kernel) | BSD-2 | Ceiling for fused normalization/activation |
+| AWQ | [mit-han-lab/llm-awq](https://github.com/mit-han-lab/llm-awq) | MIT | Ceiling for quantization tasks |
+| PagedAttention | vLLM | Apache-2.0 | Ceiling for KV cache tasks |
 
-| PR | Title | Extractable Task |
-|----|-------|-----------------|
-| #41745 | Gemma4 MTP speculative decoding | Implement MTP speculation |
-| #37512 | MiniMax-M2: Eagle3 speculative decoding | Implement EAGLE3 |
-| #39487 | Custom callable proposer backend | Implement custom proposer |
+### 4.2 Competition Problems (Task Design Reference)
 
-**vLLM Quantization PRs:**
+| Competition | Open-Source Code | Informs Task Design |
+|-------------|-----------------|-------------------|
+| MLSys 2026 AWS MoE | [thustorage/NKI-MOE](https://github.com/thustorage/NKI-MOE) | MoE optimization task scope |
+| GPU MODE | [gpu-mode/reference-kernels](https://github.com/gpu-mode/reference-kernels) | Task format (task.yml + reference.py) |
+| FlashInfer Contest | [flashinfer-ai/flashinfer-bench](https://github.com/flashinfer-ai/flashinfer-bench) | Evaluation infrastructure |
 
-| PR | Title | Extractable Task |
-|----|-------|-----------------|
-| #42566 | W4A16 NVFP4 fused MoE + mixed-precision | Implement FP4 MoE quantization |
-| #42952 | FP8 block-scaled quantization on XPU | Implement FP8 quantization |
-| #42124 | LM head quantization for ModelOpt | Implement LM head quantization |
+### 4.3 Educational Resources (Domain Knowledge)
 
-**vLLM Attention PRs:**
-
-| PR | Title | Extractable Task |
-|----|-------|-----------------|
-| #19152 | Split-KV Unified Triton Attention | Implement Split-KV attention |
-| #11277 | NKI flash-attention with paged KV | Implement NKI flash attention |
-
-**SGLang Kernel PRs:**
-
-| PR | Title | Extractable Task |
-|----|-------|-----------------|
-| #26894 | Fuse norm+rope+hadamard Triton kernel | Implement fused Triton kernel |
-| #24930 | Triton sparse MLA kernel | Implement sparse MLA kernel |
-| #24897 | Port fused SiLU+clamp+FP8 quant | Implement fused activation+quant |
-
-**Extraction method:**
-1. `gh search prs --repo vllm-project/vllm "<keyword>" --merged`
-2. Select self-contained PRs with single optimization goal
-3. Extract baseline code as task input, final code as reference
-4. Simplify complex PRs to keep only core algorithm
-
-### 3.2 Existing Kernel Benchmarks (Curated Selection)
-
-Select inference-relevant tasks from existing benchmarks:
-
-| Source | Available Tasks | What to Select |
-|--------|----------------|----------------|
-| **KernelBench** (HF: ScalingIntelligence/KernelBench) | 250 PyTorch→CUDA | GEMM, LayerNorm, Softmax, attention-related |
-| **TritonBench** (HF: LiShangZ/tritonbench) | 184 Triton operators + 8K RAG data | Attention, normalization, activation operators |
-| **KernelBenchX** (HF: BonnieWang/KernelBenchX) | 176 Triton tasks, 15 categories | Quantization tasks (currently 0/30 solved!) |
-| **SOL-ExecBench** (HF: nvidia/SOL-ExecBench) | 235 DL kernel problems | Most inference-relevant subsets |
-| **GPU MODE reference-kernels** | PrefixSum, GEMM, etc. | GEMM and inference-relevant primitives |
-
-### 3.3 Competition Problems (Adapted)
-
-| Competition | Open-Source Code | Adaptable Task |
-|-------------|-----------------|----------------|
-| MLSys 2026 AWS MoE | [thustorage/NKI-MOE](https://github.com/thustorage/NKI-MOE) | Simplified MoE megakernel on GPU |
-| ASPLOS 2025 NKI | [thustorage/nki-llama-contest](https://github.com/thustorage/nki-llama-contest) | GEMM/GEMV tiling optimization |
-| GPU MODE AMD $100K | [gpu-mode/reference-kernels](https://github.com/gpu-mode/reference-kernels) | Direct task.yml + reference.py |
-| Stanford CS149 Asst5 | [stanford-cs149/asst5-kernels](https://github.com/stanford-cs149/asst5-kernels) | FlashAttention, SwiGLU kernels |
-
-### 3.4 Textbook Reference Implementations
-
-| Technique | Source | License | Core Files |
-|-----------|--------|---------|------------|
-| FlashAttention | [Dao-AILab/flash-attention](https://github.com/Dao-AILab/flash-attention) | BSD-3 | Forward/backward CUDA kernels |
-| PagedAttention | vLLM `vllm/attention/`, `csrc/attention/` | Apache-2.0 | Block allocator + paged attention kernel |
-| GPTQ | [IST-DASLab/gptq](https://github.com/IST-DASLab/gptq) | Apache-2.0 | `gptq.py` + `quant_cuda_kernel.cu` |
-| AWQ | [mit-han-lab/llm-awq](https://github.com/mit-han-lab/llm-awq) | MIT | AWQ search + CUDA kernels |
-| Liger Kernel | [linkedin/Liger-Kernel](https://github.com/linkedin/Liger-Kernel) | BSD-2 | Triton: RMSNorm, RoPE, SwiGLU, CrossEntropy |
-| Continuous Batching | vLLM `vllm/core/scheduler.py` | Apache-2.0 | Scheduler with dynamic insert/remove |
-| Prefix Caching | SGLang RadixAttention | Apache-2.0 | Radix tree for prefix sharing |
-
----
-
-## 4. L3 Sources: End-to-End Optimization
-
-### 4.1 Simplified Competition Tasks
-
-| Original Task | Simplified Version |
-|---------------|-------------------|
-| MLSys 2026: Qwen3-30B-A3B on Trainium2/3 | Mixtral-8x7B MoE optimization on single A100 |
-| ASPLOS 2025: Llama 3.2 1B on Trainium1 | Llama-3-8B optimization on A100 |
-| GPU MODE Leaderboard | Start from basic kernels → full inference pipeline |
-
-### 4.2 InferenceBench Methodology (Adapted)
-
-Borrow InferenceBench's setup (model + GPU + time budget + scenario), but add:
-- Kernel writing requirements (not just config tuning)
-- Multi-model support (not just Mistral-7B)
-- Intermediate process evaluation (profiling interpretation, strategy explanation)
-- Analysis log requirements (not just final throughput number)
-
-### 4.3 TensorRT-LLM Blog Case Studies
-
-Each blog is a complete E2E optimization case. Example — "Optimizing DeepSeek R1 on Blackwell":
-1. Analysis: MLA/MoE architecture characteristics
-2. Precision: FP8 KV cache vs BF16, FP4 vs FP8 weights
-3. Parallelism: DP for Attention + EP for MoE
-4. Kernels: MLA absorb optimization, FP8 attention
-5. Runtime: CUDA Graph, batch tuning
-6. Result: 2000 → 4600 TPS/GPU
-
-→ Task: Given DeepSeek-R1-Distill-7B baseline, maximize throughput on single A100 within 2 hours.
+| Resource | Link | Useful For |
+|----------|------|-----------|
+| GPU MODE Lectures (106+) | [cuda-mode/lectures](https://github.com/cuda-mode/lectures) | Understanding optimization techniques |
+| TRT-LLM Tech Blogs (17+) | TensorRT-LLM `docs/source/blogs/` | Real optimization case studies |
+| MIT 6.5940 EfficientML | hanlab.mit.edu | Quantization / pruning techniques |
+| Stanford CS149 Asst5 | [stanford-cs149/asst5-kernels](https://github.com/stanford-cs149/asst5-kernels) | Kernel optimization assignments |
 
 ---
 
@@ -223,39 +261,48 @@ Each blog is a complete E2E optimization case. Example — "Optimizing DeepSeek 
 
 ---
 
-## 6. Reference Solution Validation
+## 6. Evaluation Methodology
 
-### L1: Analysis Tasks
-- Multiple inference optimization experts independently answer → consensus
-- Profiling analysis has deterministic answers (kernel X takes Y%, model is memory/compute-bound)
-- Configuration decisions verified by actually running both configs
+### L2: Correctness + Speedup
 
-### L2: Implementation Tasks
-- **Kernel correctness**: Random inputs, compare against PyTorch reference (rtol=1e-3, atol=1e-3 for FP16)
-- **Kernel performance**: KernelBench's `fast_p` (correct + speedup ≥ p) or SOL-ExecBench's SOL-Score
-- **Algorithm quality**: Paper-reported perplexity and speedup as reference (e.g., AWQ on WikiText-2)
+```python
+# Correctness: optimized output matches baseline on random inputs
+for _ in range(10):
+    inputs = generate_random_inputs(task.config)
+    baseline_out = baseline_fn(*inputs)
+    optimized_out = optimized_fn(*inputs)
+    assert torch.allclose(baseline_out, optimized_out, rtol=1e-3, atol=1e-3)
 
-### L3: End-to-End Tasks
-- Upper bound: competition winning solutions
-- Baseline: default framework config (vLLM/SGLang defaults)
-- Grading: speedup tiers (e.g., 1.5x = pass, 2x = good, 3x+ = excellent)
-- Quality gate: MMLU-Pro accuracy ≥ 0.95× baseline (following InferenceBench)
+# Performance: speedup over baseline
+baseline_time = benchmark(baseline_fn, warmup=10, trials=100)
+optimized_time = benchmark(optimized_fn, warmup=10, trials=100)
+speedup = baseline_time / optimized_time
+```
+
+### L3: Throughput/Latency + Quality Gate
+
+- **Performance**: measured throughput (tok/s) or latency (ms) improvement
+- **Quality gate**: MMLU-Pro accuracy ≥ 0.95× baseline (following InferenceBench)
+- **No ground truth needed**: we only measure whether the agent made things faster while keeping them correct
 
 ---
 
 ## 7. Construction Roadmap
 
-### Phase 1 (1-2 weeks, minimal effort)
-1. Select 15-20 inference-relevant kernel tasks from KernelBench/TritonBench/KernelBenchX → L2
-2. Extract 5-8 analysis questions from TensorRT-LLM blogs → L1
-3. Adapt InferenceBench framework for 2-3 simplified L3 tasks
+### Phase 1 (2-3 weeks)
+1. **Profile** Qwen2.5-7B / Mixtral-8x7B on A100, identify top-10 bottleneck kernels
+2. **Write baselines** for each bottleneck (naive PyTorch, 3-10 lines each)
+3. **Validate optimization space** by citing published speedups from literature
+4. **Build evaluation infrastructure** (timing, correctness checks, sandboxing)
+5. **Pilot evaluation** on 2-3 frontier agents (Claude, GPT, Gemini)
 
-### Phase 2 (3-4 weeks, engineering effort)
-4. Extract 5-8 algorithm implementation tasks from vLLM/SGLang merged PRs → L2
-5. Run profiling on target hardware, collect real traces → L1
-6. Simplify MLSys/ASPLOS competition tasks → L3
+### Phase 2 (3-4 weeks)
+6. **Expand to 15-20 L2 tasks** covering kernel, algorithm, and system optimization
+7. **Build 5-8 L3 tasks** (model + GPU + time budget → maximize throughput)
+8. **Multi-hardware profiling** to ensure tasks are representative across GPUs
+9. **Difficulty calibration** with expert panel
 
-### Phase 3 (ongoing, expert involvement)
-7. Expert-design unique L1 tasks (Roofline analysis, KV cache estimation)
-8. Expert-design unique L2 tasks (PagedAttention allocator, continuous batching scheduler)
-9. Expert validation of all reference solutions and difficulty calibration
+### Phase 3 (ongoing)
+10. **Public leaderboard** with standardized evaluation
+11. **Annual task refresh** with new profiling on latest models/hardware
+12. **Community contribution pipeline** for new tasks
