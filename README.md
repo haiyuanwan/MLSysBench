@@ -43,6 +43,8 @@ We evaluate agents by **measured performance outcomes**, not by code similarity 
 - [Benchmark Design Proposal](docs/design-proposal.md)
 - [Data Sources & Task Construction](docs/data-sources.md)
 - [Evaluation Environment](docs/environment.md)
+- [SimAI Codebase Analysis](docs/simai-analysis.md)
+- [SimAI-Based Benchmark Methodology](docs/simai-benchmark-proposals.md)
 
 ## Coverage
 

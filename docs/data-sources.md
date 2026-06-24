@@ -7,8 +7,8 @@ How to build the MLSysBench dataset: where tasks come from, how baselines are co
 ### Results-Driven, Not Code-Matching
 
 MLSysBench evaluates agents by **measured performance outcomes**. Each task provides:
-- A **baseline** (unoptimized starting point) — written by us
-- A **correctness oracle** (numerical equivalence check) — automated
+- A **baseline** (unoptimized starting point) — naive code, framework default, or baseline config depending on task type
+- A **correctness/validity oracle** — numerical equivalence for code tasks; schema/runtime/SLO validity for configuration tasks
 - A **performance measurement** (timing infrastructure) — standardized
 
 No ground truth implementation is needed. Agents are free to optimize however they want.
@@ -151,11 +151,12 @@ Each task selection is validated against multiple independent sources:
 
 ### 3.1 Baseline Philosophy
 
-Baselines are **naive correct implementations we write ourselves**. They are NOT extracted from external sources, eliminating data contamination concerns entirely.
+Baselines are **credible, correct starting points**. For code-generation tasks, they are usually naive correct implementations we write ourselves. For system/configuration tasks, they are framework defaults, simulator example configs, or automatically mined low-performance-but-valid configs.
 
 Following competition conventions:
 - **L2 tasks**: PyTorch eager (like GPU MODE) — maximum optimization headroom
 - **L3 tasks**: Framework default config (like AWS NKI competitions) — realistic starting point
+- **SimAI configuration tasks**: baseline service configs — realistic, valid, and measured under the same hidden workload as submissions
 
 ### 3.2 L2 Baselines: Naive PyTorch
 
@@ -202,7 +203,47 @@ output = model.generate(input_ids, max_new_tokens=256)
 "
 ```
 
-### 3.4 Optimization Ceiling Reference
+### 3.4 SimAI Configuration Baselines
+
+For SimAI-ConfigBench, the baseline is not a code file. It is a complete simulator configuration plus measured baseline metrics:
+
+```yaml
+baseline:
+  config: baseline_config.yaml
+  role: "starting service configuration"
+  source: "vidur example config + conservative batch cap"
+  hidden_metrics: hidden/baseline_metrics.json
+```
+
+The baseline config should be:
+- **valid**: passes schema validation and simulator execution
+- **serviceable**: not OOM, not timeout, and not trivially broken
+- **credible**: close to a default, example, or common human misconfiguration
+- **improvable**: worse than sampled best-known configs by a meaningful margin
+- **stable**: similar relative behavior across public and hidden seeds
+
+Recommended baseline sources:
+
+| Baseline source | Construction | Best use |
+|-----------------|--------------|----------|
+| Natural baseline | Use SimAI/vidur example configs or framework-like defaults | Realistic MVP tasks |
+| Perturbed baseline | Start from a good config and inject one or two common misconfigurations | Diagnostic configuration tasks |
+| Sampled-percentile baseline | Sample legal configs, filter valid runs, choose a 25%-40% percentile config | Scalable task generation |
+
+For sampled-percentile baselines:
+
+```text
+define scenario and action space
+  -> sample candidate configs
+  -> run simulator on public/hidden workloads
+  -> filter invalid/OOM/timeout configs
+  -> rank by objective metric
+  -> choose a low-percentile but credible baseline
+```
+
+Best-known configs from this process are used only for sanity checking and difficulty calibration. They are not oracle labels and do not enter scoring.
+
+### 3.5 Optimization Ceiling Reference
 
 Each task documents a known performance ceiling from literature (NOT as ground truth, but to confirm optimization space exists and calibrate difficulty):
 

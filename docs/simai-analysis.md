@@ -27,7 +27,16 @@ SimAI/
 
 ### 1.3 许可证
 
-Apache-2.0，可自由使用和修改。
+SimAI 根目录 `LICENSE` 为 Apache-2.0。需要注意：当前上游 `README.md` 的 badge 标注为 MIT，`vidur-alibabacloud/LICENSE` 也是 MIT；因此在 MLSysBench 中引用或再分发时，应按各目录实际 `LICENSE` 文件分别处理，而不是只看 README badge。
+
+### 1.4 经代码核验的推理后端约束
+
+下面这些约束直接影响 MLSysBench 的 benchmark 设计：
+
+1. **vidur 中的 EP 不能作为自由 action**：`vidur-alibabacloud/vidur/config/config.py` 明确写着 `expert_model_parallel_size` 会被自动设为 `world_size`，用户传入不一致会抛 `ValueError`。因此当前不能直接设计“搜索最优 EP”的任务，除非先扩展 vidur 的 EP 建模。
+2. **SimAI analytical/simulation 接入 vidur 时主要建模 TP 通信**：`vidur-alibabacloud/README.md` 写明 `simai_simulation` 和 `simai_analytical` 当前只支持 TP；`communication_time_predictor.py` 也只生成单个 `ALLREDUCE` workload 来预测 TP allreduce 时间。EP AllToAll、PP 通信、PD 跨节点传输不能直接由这个路径完整评估。
+3. **多请求推理路径不是纯 CPU 高保真路径**：SimAI 顶层 analytical 可以在 CPU 上运行，但 multi-request inference 依赖 AICB/AIOB 计算时间数据；README 指出相关 profiling 依赖 DeepGEMM/FlashMLA 等 Hopper/Blackwell 硬件库。无 GPU 或无 profiling CSV 时，系统会使用默认/经验回退，适合做决策 benchmark 的可复现近似环境，但不能宣称真实推理系统高保真。
+4. **PD 分离的 KV 传输是参数化估算**：`BatchEndEvent` 中按 `kv_cache_size / pd_p2p_comm_bandwidth` 加延迟，代码 TODO 仍标注带宽应从拓扑获取并考虑竞争。因此 PD ratio 和 P2P bandwidth 可以作为当前任务 action，拓扑竞争与网络拥塞应作为后续扩展。
 
 ---
 
@@ -617,13 +626,15 @@ vidur 支持 4 种执行时间预测后端：
 | 后端 | 计算时间来源 | 通信时间来源 | 精度 | 速度 |
 |------|------------|------------|------|------|
 | **Sklearn (vidur native)** | profiling CSV 训练 RandomForest | profiling CSV 训练模型 | 依赖 profiling 数据质量 | 快（查表） |
-| **AICB** | AICB CSV per-layer comp_time | 设为 0（不模拟 TP comm） | 高（GPU profiled） | 中（可能触发 AICB 子进程） |
-| **SimAI Analytical** | AICB CSV | busbw 分析模型 | 中 | 中 |
-| **SimAI Simulation** | AICB CSV | NS-3 包级仿真 | 高 | 慢 |
+| **AICB** | AICB CSV per-layer comp_time / 经验回退 | TP comm 当前置 0 | 取决于 profiling 数据；无数据时为近似 | 中（可能触发 AICB 子进程） |
+| **SimAI Analytical** | vidur 计算模型 + TP workload | SimAI busbw 分析模型，仅 TP allreduce 路径 | 中；不覆盖 EP/PP/PD 网络细节 | 中 |
+| **SimAI Simulation** | vidur 计算模型 + TP workload | NS-3 包级仿真，仅 TP allreduce 路径 | 较高但范围有限 | 慢 |
 
 AICB 后端使用全局缓存 `AICBGlobalCache`：精确匹配 → 相邻 seq 值线性插值 → 缓存未命中时运行 AICB 子进程。
 
 `SimAIWorkload.py` 定义了 vidur 内部使用的 workload 格式，与 AICB 输出格式一致，用于将推理请求的计算/通信需求传递给 astra-sim。
+
+**设计含义**：在 MLSysBench 第一版中，`backend=vidur/aicb/simai_analytical` 可以用于评估 TP、PP、batching、scheduler、PD 分离等系统决策，但 EP AllToAll、网络拓扑拥塞、collective 算法选择不应作为可评分核心 action。
 
 ### 4.8 GPU 内存规划
 
@@ -663,6 +674,11 @@ vidur-alibabacloud 的核心创新之一，完整流程：
    - `decode_arrived_at = prefill_completed_at + transfer_time`
 5. **请求转移到 D 副本**: `ReplicaScheduleEvent` 在 `decode_arrived_at` 时触发，D 副本开始 decode
 
+当前实现限制：
+- P/D 副本的比例和 `num_prefill_replicas` 可调，适合构造 PD 分离任务。
+- P2P 传输带宽是配置参数，不从 SimAI 拓扑动态推导，也不建模多 flow 竞争。
+- splitwise 调度器中仍有若干 DAG/flow 相关冗余代码和 TODO，开放式“新 PD 调度算法”任务需要先补测试。
+
 ### 4.10 指标系统
 
 `MetricsStore` 收集以下指标：
@@ -684,7 +700,7 @@ MFU 计算: `MFUCalculator` 对每个 batch_stage 计算 MLP FLOPs + Attention F
 
 vidur 包含自动配置优化器，可搜索 Pareto 最优配置。
 
-**搜索空间**: TP, PP, batch_size, scheduler_type, chunk_size 等配置参数的笛卡尔积。
+**搜索空间**: 当前主要覆盖 TP, PP, batch_size, scheduler_type, chunk_size 等配置参数的笛卡尔积；不覆盖 EP 手动搜索、网络拓扑、异构 GPU、PD ratio 的完整联合优化。
 
 **CapacitySearch**: 二分搜索最大 QPS under SLO:
 ```
@@ -700,6 +716,8 @@ while not converged:
 - TBT 违规 → 模型执行延迟高 / 尾延迟（调度器选择 / chunk_size）
 
 Streamlit dashboard 可视化 Pareto 曲线。
+
+**设计含义**：Config Optimizer 可作为 baseline 构造、sanity-check 搜索和任务难度校准的起点，但不应成为正式评分所依赖的 hidden oracle。MLSysBench-SimAI 第一版应采用 baseline-relative measured score：保存 baseline hidden metrics，在 hidden workload 上实测 agent 配置的改进。现有 `BottleneckAnalyzer` 可用于人类分析日志，但不应作为 root-cause label 评分依据，因为其源码中仍将多类网络与低并行度诊断标为未实现。
 
 ### 4.12 支持的模型
 
@@ -890,11 +908,11 @@ FROM nvcr.io/nvidia/pytorch:24.07-py3
 | SimAI 能力 | MLSysBench 应用 | 具体接口 |
 |-----------|-----------------|---------|
 | vidur 推理仿真 | L3 系统级优化 task 的评估环境 | `vidur.main` CLI |
-| 多种调度器 | 调度优化 task 的 baseline/oracle | `ReplicaSchedulerRegistry` |
-| PD 分离 | Prefill-decode 优化 task | `SplitwiseGlobalScheduler` |
-| 配置优化器 | 自动化配置搜索 task | `config_optimizer/` |
+| 多种调度器 | 调度优化 task 的候选配置 | `ReplicaSchedulerRegistry` |
+| PD 分离 | Prefill-decode 优化 task（参数化 P/D 划分和 KV transfer） | `SplitwiseGlobalScheduler` |
+| 配置优化器 | baseline 生成、sanity-check 搜索、任务难度校准 | `config_optimizer/` |
 | AICB workload 生成 | 为仿真提供标准化输入 | `SimAI_inference_workload_generator.py` |
-| busbw + Analytical | 快速并行策略评估 | `SimAI_analytical` |
+| busbw + Analytical | 快速 TP 通信评估 | `SimAI_analytical` |
 | 内存规划 | GPU 内存优化 task | `MemoryPlanner` |
 
 ### 9.2 需要扩展的能力
@@ -904,7 +922,10 @@ FROM nvcr.io/nvidia/pytorch:24.07-py3
 | Kernel 级仿真 | SimAI 以 kernel time 为输入 | 不适用，仍需真实 GPU |
 | 量化效果仿真 | ParamCounter 支持 FP8 | 需添加 W4A8/INT4 支持 |
 | 新调度算法评估 | 固定的 6 种调度器 | 可注册新调度器到 registry |
-| 新模型支持 | 已支持 7 种模型 | 通过 JSON config 添加 |
+| EP 策略搜索 | EP 自动设为 world_size，不能手动搜索 | 扩展 ReplicaConfig/Cluster/ParamCounter/AICB 参数传递 |
+| EP/AllToAll 网络仿真 | vidur 的 SimAI 后端当前只接入 TP allreduce | 扩展 `TPTimePredictor` 为通用 collective predictor |
+| 拓扑竞争建模 | PD P2P 传输按带宽参数估算 | 接入 topology-aware flow model 或 NS-3 |
+| 新模型支持 | 已支持若干模型配置 | 通过 JSON config 添加，但计算时间仍需 profiling 或回退模型 |
 | Agent 接口 | 无 | 需要包装 vidur CLI 为 tool API |
 
 ### 9.3 不适用的场景
@@ -917,7 +938,7 @@ FROM nvcr.io/nvidia/pytorch:24.07-py3
 
 ## 10. 关键设计决策总结
 
-1. **计算与通信分离**: SimAI 将模型执行抽象为 `(compute_time, comm_type, comm_size)` 三元组，计算时间来自 AIOB profiling 或默认值，通信时间由仿真器计算。
+1. **计算与通信分离**: SimAI 将模型执行抽象为 `(compute_time, comm_type, comm_size)` 三元组，计算时间来自 AIOB profiling 或默认值，通信时间由仿真器计算。推理 vidur 路径中需要注意：AICB 可提供计算时间，SimAI backend 当前主要补 TP allreduce 通信。
 
 2. **可插拔网络后端**: analytical（快速估算）/ NS-3（精确仿真）/ phynet（真实网络），同一 workload 可在不同后端上运行。
 
@@ -927,4 +948,4 @@ FROM nvcr.io/nvidia/pytorch:24.07-py3
 
 5. **Registry 模式**: 调度器、请求生成器、执行时间预测器都使用 registry 模式，方便扩展。
 
-6. **NCCL 仿真保真度**: SimCCL 精确复现 NCCL 的 channel 分配、消息分块、流水线行为，而非简单的带宽除法。
+6. **NCCL 仿真保真度**: SimCCL 在 training/full simulation 路径中复现 NCCL 的 channel 分配、消息分块、流水线行为；但 vidur 的 multi-request inference 接入目前没有完整使用这套能力来覆盖 EP/PD/PP 网络通信。
