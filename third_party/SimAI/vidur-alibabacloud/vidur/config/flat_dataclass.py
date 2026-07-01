@@ -111,10 +111,11 @@ def create_from_cli_args(cls) -> Any:
             action = BooleanOptionalAction
 
         arg_params = {
-            "type": field_type,
             "action": action,
             "help": help_text,
         }
+        if action is None:
+            arg_params["type"] = field_type
 
         # handle cases with default and default factory args
         if field.default is not MISSING:

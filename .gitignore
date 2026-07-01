@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+runs/
+third_party/SimAI/bin/
+third_party/SimAI/results/
+third_party/SimAI/aicb/results/
+third_party/SimAI/astra-sim-alibabacloud/build/*/build/
+third_party/SimAI/vidur-alibabacloud/cache/
+third_party/SimAI/vidur-alibabacloud/data/aicb_workload/
+third_party/SimAI/vidur-alibabacloud/data/aicb_workload/**

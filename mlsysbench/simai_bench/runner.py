@@ -49,10 +49,26 @@ class MockRunner:
             raise ConfigError("mock runner requires runner.mock_metrics")
         metrics_file = resolve_task_path(task.task_dir, metrics_path)
         data = load_structured(metrics_file)
-        signature = change_signature(changes)
-        metrics_data = data.get(signature) or data.get("default")
+        signature_candidates = [change_signature(changes)]
+        allowed_config = {
+            key: config[key]
+            for key in task.load_allowed_actions()
+            if key in config
+        }
+        signature_candidates.append(change_signature(allowed_config))
+
+        metrics_data = None
+        for signature in signature_candidates:
+            metrics_data = data.get(signature)
+            if metrics_data is not None:
+                break
+        metrics_data = metrics_data or data.get("default")
         if metrics_data is None:
-            return RunResult(False, {}, error=f"No mock metrics for signature {signature}")
+            return RunResult(
+                False,
+                {},
+                error=f"No mock metrics for signatures {signature_candidates}",
+            )
         return RunResult(True, load_metrics_json(metrics_data))
 
 

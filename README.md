@@ -61,6 +61,60 @@ This validates task specs, allowed action diffs, SLO gates, and
 baseline-relative scoring. The included task uses a mock runner so the harness
 works without a full SimAI build; real tasks can switch to the Vidur runner.
 
+Run the same task through the model-agent path:
+
+```bash
+python3 -m mlsysbench.simai_bench run-agent \
+  --task tasks/simai_gym/l1_scheduler_choice \
+  --provider dry-run \
+  --output-dir runs/dry_run_l1_scheduler
+```
+
+For an OpenAI-compatible model endpoint, create `.env` from `.env.example` and
+fill in `MODEL_API_KEY`, `MODEL_BASE_URL`, and `MODEL_NAME`. The CLI loads this
+file automatically:
+
+```bash
+python3 -m mlsysbench.simai_bench run-agent \
+  --task tasks/simai_gym/l1_scheduler_choice \
+  --provider openai-compatible \
+  --api-key-env MODEL_API_KEY \
+  --output-dir runs/model_l1_scheduler
+```
+
+### Running Real SimAI/Vidur on RTX 5880
+
+The bundled example task uses the mock runner. For real simulation on a CUDA
+machine, set up Vidur and SimAI under `third_party/SimAI`:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r third_party/SimAI/vidur-alibabacloud/requirements.txt
+python -m pip install -r third_party/SimAI/aicb/requirements.txt
+```
+
+Build the SimAI analytical backend:
+
+```bash
+cd third_party/SimAI/astra-sim-alibabacloud/build/simai_analytical
+./build.sh -c
+cd ../../../..
+mkdir -p third_party/SimAI/bin
+ln -sf ../astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical \
+  third_party/SimAI/bin/SimAI_analytical
+```
+
+AICB-backed model timing for DeepSeek/Qwen requires CUDA-only packages used by
+the local AICB mocked models, including PyTorch with CUDA, DeepGEMM,
+FlashInfer/FlashMLA where applicable, Triton, and vLLM utilities. On the RTX
+5880 host, install those in `.venv` before running `backend=aicb`.
+
+The runner-side compatibility patch in Vidur's CLI is included so Python 3.14
+does not fail on boolean flags. Python 3.10 or 3.11 is still the safer choice on
+the CUDA host if the CUDA packages require it.
+
 ## Coverage
 
 ```
