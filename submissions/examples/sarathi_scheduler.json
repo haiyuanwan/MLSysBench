@@ -1,0 +1,9 @@
+{
+  "changes": {
+    "replica_scheduler_config_type": "sarathi",
+    "sarathi_scheduler_config_chunk_size": 512,
+    "vllm_scheduler_config_max_tokens_in_batch": 2048
+  },
+  "notes": "Use chunked prefill to reduce TTFT tail latency while keeping batch capacity stable."
+}
+

@@ -1,0 +1,10 @@
+{
+  "metrics": {
+    "goodput_rps": 42.0,
+    "p99_e2e_ms": 1450.0,
+    "p99_tbt_ms": 72.0,
+    "p99_ttft_ms": 910.0,
+    "throughput_rps": 51.3
+  }
+}
+

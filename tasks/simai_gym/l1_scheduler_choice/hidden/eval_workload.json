@@ -1,0 +1,8 @@
+{
+  "request_generator": "synthetic",
+  "arrival": "poisson",
+  "prompt_length": "heavy_tail_long",
+  "decode_length": "mixed",
+  "seed": 9
+}
+

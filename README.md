@@ -45,6 +45,21 @@ We evaluate agents by **measured performance outcomes**, not by code similarity 
 - [Evaluation Environment](docs/environment.md)
 - [SimAI Codebase Analysis](docs/simai-analysis.md)
 - [SimAI-Based Benchmark Methodology](docs/simai-benchmark-proposals.md)
+- [SimAI Benchmark Code Scaffold](docs/simai-benchmark-code.md)
+
+## SimAI Benchmark Scaffold
+
+Run the bundled smoke-test task:
+
+```bash
+python3 -m mlsysbench.simai_bench evaluate \
+  --task tasks/simai_gym/l1_scheduler_choice \
+  --submission submissions/examples/sarathi_scheduler.json
+```
+
+This validates task specs, allowed action diffs, SLO gates, and
+baseline-relative scoring. The included task uses a mock runner so the harness
+works without a full SimAI build; real tasks can switch to the Vidur runner.
 
 ## Coverage
 

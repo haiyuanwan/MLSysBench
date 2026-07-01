@@ -1,0 +1,16 @@
+{
+  "replica_scheduler_config_type": {
+    "type": "str",
+    "choices": ["vllm", "sarathi", "orca"]
+  },
+  "sarathi_scheduler_config_chunk_size": {
+    "type": "int",
+    "choices": [256, 512, 1024]
+  },
+  "vllm_scheduler_config_max_tokens_in_batch": {
+    "type": "int",
+    "min": 512,
+    "max": 4096
+  }
+}
+

@@ -1,0 +1,21 @@
+{
+  "default": {
+    "metrics": {
+      "goodput_rps": 40.0,
+      "p99_e2e_ms": 1500.0,
+      "p99_tbt_ms": 90.0,
+      "p99_ttft_ms": 950.0,
+      "throughput_rps": 52.0
+    }
+  },
+  "{\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":512,\"vllm_scheduler_config_max_tokens_in_batch\":2048}": {
+    "metrics": {
+      "goodput_rps": 68.0,
+      "p99_e2e_ms": 980.0,
+      "p99_tbt_ms": 66.0,
+      "p99_ttft_ms": 710.0,
+      "throughput_rps": 70.2
+    }
+  }
+}
+
