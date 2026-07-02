@@ -1,0 +1,10 @@
+{
+  "generator": "synthetic",
+  "num_requests": 32,
+  "prefill_tokens": 100,
+  "decode_tokens": 8,
+  "arrival_process": "poisson",
+  "qps": 100.0,
+  "execution_time_backend": "aicb",
+  "notes": "Non-smoke real Vidur+AICB baseline profile. It exercises repeated request scheduling with AICB-backed layer timing data."
+}

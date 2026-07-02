@@ -201,6 +201,10 @@ core.*
 !data/aicb_workload/cache/
 !data/aicb_workload/cache/*.csv
 !data/aicb_workload/cache/*.json
+
+# MLSysBench local AICB generated cache/logs are runtime artifacts.
+data/aicb_workload/
+data/aicb_workload/**
 # Added rule to ignore all *fth.py files
 *fth.py
 # Added rule to recursively ignore all *fth.py files in all directories
@@ -210,4 +214,3 @@ README-fth.md
 **/README-fth.md
 fth.sh
 **/fth.sh
-

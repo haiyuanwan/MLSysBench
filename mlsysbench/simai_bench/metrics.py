@@ -19,11 +19,7 @@ def load_metrics_json(data: dict[str, Any]) -> dict[str, float]:
 
 def parse_vidur_output(output_dir: str | Path, slo: Any = None) -> dict[str, float]:
     output_dir = Path(output_dir)
-    request_metrics = output_dir / "request_metrics.csv"
-    if not request_metrics.exists():
-        request_metrics = output_dir / "plots" / "request_metrics.csv"
-    if not request_metrics.exists():
-        raise FileNotFoundError(f"Could not find request_metrics.csv under {output_dir}")
+    request_metrics = _find_request_metrics(output_dir)
 
     rows = _read_csv_rows(request_metrics)
     if not rows:
@@ -60,6 +56,26 @@ def parse_vidur_output(output_dir: str | Path, slo: Any = None) -> dict[str, flo
             metrics["goodput_rps"] = _goodput(rows, duration, slo)
 
     return metrics
+
+
+def _find_request_metrics(output_dir: Path) -> Path:
+    candidates = [
+        output_dir / "request_metrics.csv",
+        output_dir / "plots" / "request_metrics.csv",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    nested = [
+        path
+        for path in output_dir.rglob("request_metrics.csv")
+        if path.is_file()
+    ]
+    if nested:
+        return max(nested, key=lambda path: path.stat().st_mtime)
+
+    raise FileNotFoundError(f"Could not find request_metrics.csv under {output_dir}")
 
 
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:
@@ -115,4 +131,3 @@ def _row_meets_slo(row: dict[str, str], slo: Any) -> bool:
         except (KeyError, TypeError, ValueError):
             return False
     return True
-

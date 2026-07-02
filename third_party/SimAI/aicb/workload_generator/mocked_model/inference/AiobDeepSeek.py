@@ -112,32 +112,14 @@ class DeepSeekAtten(torch.nn.Module):
         k = self.hidden_size #7168
         n = self.d_kv_c + self.d_q_c + self.d_r  #2112
         print(f'm={m}, k={k}, n={n}')
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-        deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        diff = calc_diff(out, ref_out)
-        assert diff < 0.001, f'{m=}, {k=}, {n=}, {diff:.5f}'
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        def test_func():
-            # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-            deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        t = bench_kineto(test_func, 'fp8_gemm', suppress_kineto_output=True)
+        t = bench_fp8_gemm_nt_or_bf16(m, k, n)
         return t
 
     def _q_uncrompression(self, m):
         k = self.d_q_c #1536
         n = self.num_heads *(self.d_q + self.d_r) // self.tp
         print(f'm={m}, k={k}, n={n}')
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-        deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        diff = calc_diff(out, ref_out)
-        assert diff < 0.001, f'{m=}, {k=}, {n=}, {diff:.5f}'
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        def test_func():
-            # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-            deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        t = bench_kineto(test_func, 'fp8_gemm', suppress_kineto_output=True)
+        t = bench_fp8_gemm_nt_or_bf16(m, k, n)
         return t
     def _q_bmm(self, m):
         b = self.num_heads //self.tp
@@ -263,16 +245,7 @@ class DeepSeekAtten(torch.nn.Module):
         k = self.num_heads * self.d_kv //self.tp
         n = self.hidden_size
         print(f'm={m}, k={k}, n={n}')
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-        deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        diff = calc_diff(out, ref_out)
-        assert diff < 0.001, f'{m=}, {k=}, {n=}, {diff:.5f}'
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        def test_func():
-            # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-            deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        t = bench_kineto(test_func, 'fp8_gemm', suppress_kineto_output=True)
+        t = bench_fp8_gemm_nt_or_bf16(m, k, n)
         return t
          
     def forward(self):
@@ -313,32 +286,14 @@ class DeepSeekMLP(torch.nn.Module):
         k = self.hidden_size #7168
         n = self.expert_dim * 2   #不开TP
         print(f'm={m}, k={k}, n={n}')
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-        deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        diff = calc_diff(out, ref_out)
-        assert diff < 0.001, f'{m=}, {k=}, {n=}, {diff:.5f}'
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        def test_func():
-            # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-            deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        t = bench_kineto(test_func, 'fp8_gemm', suppress_kineto_output=True)
+        t = bench_fp8_gemm_nt_or_bf16(m, k, n)
         return t
 
     def _down(self, m):
         k = self.expert_dim  #不开TP
         n = self.hidden_size
         print(f'm={m}, k={k}, n={n}')
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-        deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        diff = calc_diff(out, ref_out)
-        assert diff < 0.001, f'{m=}, {k=}, {n=}, {diff:.5f}'
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        def test_func():
-            # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-            deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        t = bench_kineto(test_func, 'fp8_gemm', suppress_kineto_output=True)
+        t = bench_fp8_gemm_nt_or_bf16(m, k, n)
         return t
 
     def forward(self):

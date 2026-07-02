@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -74,8 +75,14 @@ class MockRunner:
 
 class VidurRunner:
     def run(self, task: TaskSpec, config: dict[str, Any], changes: dict[str, Any]) -> RunResult:
-        vidur_root = Path(task.runner.config.get("vidur_root", "third_party/SimAI/vidur-alibabacloud"))
-        output_dir = Path(task.runner.config.get("output_dir", "runs/simai_bench")) / task.task_id
+        vidur_root = _resolve_runner_path(
+            task,
+            task.runner.config.get("vidur_root", "third_party/SimAI/vidur-alibabacloud"),
+        )
+        output_dir = (
+            _resolve_runner_path(task, task.runner.config.get("output_dir", "runs/simai_bench"))
+            / task.task_id
+        )
         output_dir.mkdir(parents=True, exist_ok=True)
 
         run_config = dict(config)
@@ -83,6 +90,11 @@ class VidurRunner:
         python_bin = task.runner.config.get("python_bin", sys.executable)
         args = [python_bin, "-m", "vidur.main", *to_cli_args(run_config)]
         timeout = int(task.runner.config.get("timeout_seconds", 600))
+        env = os.environ.copy()
+        env_config = task.runner.config.get("env", {})
+        if not isinstance(env_config, dict):
+            raise ConfigError("vidur runner env must be an object")
+        env.update({str(key): str(value) for key, value in env_config.items()})
 
         try:
             completed = subprocess.run(
@@ -92,6 +104,7 @@ class VidurRunner:
                 text=True,
                 timeout=timeout,
                 check=False,
+                env=env,
             )
         except subprocess.TimeoutExpired as exc:
             return RunResult(False, {}, output_dir=str(output_dir), error=f"timeout: {exc}")
@@ -103,6 +116,14 @@ class VidurRunner:
                 output_dir=str(output_dir),
                 error=completed.stderr[-4000:] or completed.stdout[-4000:],
             )
+        fallback_error = detect_aicb_failure_or_default(completed.stdout, completed.stderr)
+        if fallback_error is not None:
+            return RunResult(
+                False,
+                {},
+                output_dir=str(output_dir),
+                error=fallback_error,
+            )
 
         try:
             metrics = parse_vidur_output(output_dir, task.slo)
@@ -113,3 +134,30 @@ class VidurRunner:
 
 def change_signature(changes: dict[str, Any]) -> str:
     return json.dumps(changes, sort_keys=True, separators=(",", ":"))
+
+
+def _resolve_runner_path(task: TaskSpec, path_value: Any) -> Path:
+    path = Path(str(path_value))
+    if path.is_absolute():
+        return path
+    cwd_candidate = (Path.cwd() / path).resolve()
+    if cwd_candidate.exists() or str(path).startswith("runs/"):
+        return cwd_candidate
+    return (task.task_dir / path).resolve()
+
+
+def detect_aicb_failure_or_default(stdout: str, stderr: str) -> str | None:
+    combined = f"{stdout}\n{stderr}"
+    markers = (
+        "AICB data is empty",
+        "using default attention execution time",
+        "using default MLP execution time",
+        "using default MoE execution time",
+        "Expected CSV file was NOT created",
+        "AICB command failed",
+        "无法找到任何AICB CSV",
+    )
+    for marker in markers:
+        if marker in combined:
+            return f"AICB failure/default fallback detected: {marker}"
+    return None

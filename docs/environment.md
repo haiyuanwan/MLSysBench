@@ -101,7 +101,67 @@ docker run --rm \
     mlsysbench:latest
 ```
 
-### Option C: Apptainer (HPC Clusters)
+### Option C: Bare-Metal CUDA Host for SimAI/Vidur/AICB
+
+Use this path when running the real SimAI/Vidur/AICB benchmark stack directly
+from this repository, not the mock runner. AICB imports and JIT-compiles CUDA
+extensions from PyTorch, vLLM, DeepGEMM, FlashMLA, FlashInfer, grouped_gemm, and
+Triton, so the host must expose NVIDIA devices and a working CUDA toolkit.
+
+Verified host profile:
+
+```text
+GPU: 2 x NVIDIA RTX5880-Ada-48Q
+Driver: 570.172.18
+CUDA runtime reported by driver: 12.8
+CUDA toolkit used for builds: /usr/local/cuda-12.9
+Python: CPython 3.11
+PyTorch: 2.8.0+cu128
+vLLM: 0.11.0
+```
+
+Minimum setup outline:
+
+```bash
+# Install a modern toolkit. DeepGEMM/FlashMLA builds need newer CUDA than the
+# Ubuntu 24.04 nvidia-cuda-toolkit package provides.
+sudo apt-get install -y cuda-toolkit-12-9
+
+# Create Python 3.11 if the system Python is too new for CUDA packages.
+python3 -m pip install uv
+uv venv --python 3.11 .venv311
+
+.venv311/bin/python -m pip install -U pip setuptools wheel packaging ninja cmake
+.venv311/bin/python -m pip install torch torchvision torchaudio \
+  --index-url https://download.pytorch.org/whl/cu128
+
+CUDA_HOME=/usr/local/cuda-12.9 \
+CC=/usr/bin/gcc-12 CXX=/usr/bin/g++-12 CUDAHOSTCXX=/usr/bin/g++-12 \
+FLASH_MLA_DISABLE_SM100=1 \
+PATH=/home/haiyuan/MLSysBench/.venv311/bin:/usr/local/cuda-12.9/bin:$PATH \
+LD_LIBRARY_PATH=/usr/local/cuda-12.9/lib64:$LD_LIBRARY_PATH \
+  .venv311/bin/python -m pip install --no-build-isolation \
+  -r third_party/SimAI/aicb/requirements.txt
+```
+
+When invoking real AICB or Vidur+AICB commands, keep the venv and CUDA toolkit
+at the front of the environment:
+
+```bash
+export CUDA_HOME=/usr/local/cuda-12.9
+export PATH=/home/haiyuan/MLSysBench/.venv311/bin:/usr/local/cuda-12.9/bin:$PATH
+export LD_LIBRARY_PATH=/home/haiyuan/MLSysBench/.venv311/lib/python3.11/site-packages/torch/lib:/usr/local/cuda-12.9/lib64:$LD_LIBRARY_PATH
+export TORCH_CUDA_ARCH_LIST=8.9
+export DG_JIT_NVCC_COMPILER=/home/haiyuan/MLSysBench/scripts/deepgemm_nvcc_sm89_wrapper.sh
+```
+
+`DG_JIT_NVCC_COMPILER` is only needed on RTX 5880/Ada sm89 hosts. Current
+DeepGEMM may emit `sm_89a`, which CUDA 12.9 `nvcc` rejects. The wrapper rewrites
+that arch to `sm_89`. DeepGEMM FP8 GEMM itself still targets sm90/sm100; the
+local AICB helpers therefore use real CUDA bf16 matmul timing on sm89 instead of
+mock/default timings.
+
+### Option D: Apptainer (HPC Clusters)
 
 Reference: [InferenceBench containers](https://github.com/aisa-group/InferenceBench/tree/main/containers)
 

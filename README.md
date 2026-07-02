@@ -15,6 +15,31 @@ Existing benchmarks cover parts of this space but not the whole picture:
 
 ## Benchmark Design
 
+### Current Overview
+
+```mermaid
+flowchart LR
+    Agent["Agent or baseline submission"] --> Submission["submission.json<br/>allowed config changes"]
+    Task["Task spec<br/>task.json, baseline_config,<br/>allowed_actions, hidden metrics"] --> Evaluator["MLSysBench evaluator"]
+    Submission --> Evaluator
+
+    Evaluator --> Merge["Validate changes<br/>merge with baseline config"]
+    Merge --> Runner{"Runner backend"}
+
+    Runner --> Mock["mock runner<br/>CI-safe harness tasks"]
+    Runner --> Vidur["Vidur runner<br/>real scheduling simulation"]
+
+    Vidur --> AICB["AICB timing backend<br/>DeepGEMM / FlashMLA / FlashInfer"]
+    Vidur --> SimAI["SimAI analytical backend<br/>native simulator checks"]
+
+    Mock --> Metrics["request metrics"]
+    AICB --> Metrics
+    SimAI --> Metrics
+
+    Metrics --> Scoring["SLO gates + baseline-relative scoring"]
+    Scoring --> Result["result.json<br/>valid, score, ratio, failures"]
+```
+
 ### Results-Driven Evaluation
 
 We evaluate agents by **measured performance outcomes**, not by code similarity to reference solutions. Each task provides an unoptimized baseline — the agent's job is to make it faster while preserving correctness. Even if an agent memorizes open-source code, what matters is whether its optimization achieves real speedup.
@@ -82,38 +107,57 @@ python3 -m mlsysbench.simai_bench run-agent \
   --output-dir runs/model_l1_scheduler
 ```
 
-### Running Real SimAI/Vidur on RTX 5880
+### Running Real SimAI/Vidur/AICB
 
-The bundled example task uses the mock runner. For real simulation on a CUDA
-machine, set up Vidur and SimAI under `third_party/SimAI`:
+The bundled example task uses the mock runner. Real SimAI, native Vidur, and
+AICB-backed Vidur runs require a CUDA host and Python 3.10/3.11 because AICB
+loads CUDA PyTorch, vLLM, DeepGEMM, FlashMLA, FlashInfer, grouped_gemm, and
+Triton kernels.
+
+Use the runbook in [docs/simai-benchmark-code.md](docs/simai-benchmark-code.md)
+for the full setup and commands. The runbook includes the RTX 5880 Ada
+compatibility path used in this repository: DeepGEMM FP8 kernels are used on
+supported sm90/sm100 GPUs, while sm89 hosts fall back to real CUDA bf16 matmul
+timing rather than mock/default timings.
+
+Current implementation status:
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Mock harness task | Complete | `tasks/simai_gym/l1_scheduler_choice` runs without CUDA. |
+| Native Vidur smoke | Complete | Real `python -m vidur.main` path verified. |
+| SimAI analytical smoke | Complete | `third_party/SimAI/bin/SimAI_analytical` build verified. |
+| Direct AICB workload generation | Complete | Qwen3-Next-80B CSV generation verified on CUDA host. |
+| Vidur + AICB smoke | Complete | Reproducible via `scripts/run_real_simai_vidur_aicb_smoke.sh`. |
+| Real Vidur+AICB benchmark task | Complete | `tasks/simai_gym/qwen3_next_aicb_benchmark` runs a 32-request workload. |
+| Multi-scenario benchmark matrix | Pending | Need sweeps across QPS, request counts, models, and backends. |
+| GPU CI | Pending | Current CI-safe tests cover harness logic, not CUDA execution. |
+
+Run the real CUDA benchmark task:
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -r third_party/SimAI/vidur-alibabacloud/requirements.txt
-python -m pip install -r third_party/SimAI/aicb/requirements.txt
+python -m mlsysbench.simai_bench evaluate \
+  --task tasks/simai_gym/qwen3_next_aicb_benchmark \
+  --submission submissions/examples/qwen3_next_aicb_benchmark_baseline.json
 ```
 
-Build the SimAI analytical backend:
+Run the wrapper script for the same non-smoke 32-request profile:
 
 ```bash
-cd third_party/SimAI/astra-sim-alibabacloud/build/simai_analytical
-./build.sh -c
-cd ../../../..
-mkdir -p third_party/SimAI/bin
-ln -sf ../astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical \
-  third_party/SimAI/bin/SimAI_analytical
+scripts/run_real_simai_vidur_aicb_benchmark.sh
 ```
 
-AICB-backed model timing for DeepSeek/Qwen requires CUDA-only packages used by
-the local AICB mocked models, including PyTorch with CUDA, DeepGEMM,
-FlashInfer/FlashMLA where applicable, Triton, and vLLM utilities. On the RTX
-5880 host, install those in `.venv` before running `backend=aicb`.
+Run the one-request CUDA health check:
 
-The runner-side compatibility patch in Vidur's CLI is included so Python 3.14
-does not fail on boolean flags. Python 3.10 or 3.11 is still the safer choice on
-the CUDA host if the CUDA packages require it.
+```bash
+scripts/run_real_simai_vidur_aicb_smoke.sh
+```
+
+For a CI-safe command construction check:
+
+```bash
+DRY_RUN=1 scripts/run_real_simai_vidur_aicb_smoke.sh
+```
 
 ## Coverage
 

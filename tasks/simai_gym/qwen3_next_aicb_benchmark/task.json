@@ -1,0 +1,34 @@
+{
+  "task_id": "simai_gym_qwen3_next_aicb_benchmark",
+  "track": "simai_gym",
+  "description": "Real Vidur+AICB benchmark profile for Qwen3-Next-80B decode timing on a CUDA host.",
+  "baseline_config": "baseline_config.json",
+  "allowed_actions": "allowed_actions.json",
+  "objective": {
+    "primary_metric": "goodput_rps",
+    "direction": "maximize",
+    "score_cap": 2.0
+  },
+  "slo": {
+    "p99_ttft_ms": 800,
+    "p99_tbt_ms": 80
+  },
+  "hidden": {
+    "baseline_metrics": "hidden/baseline_metrics.json",
+    "eval_workload": "hidden/eval_workload.json"
+  },
+  "runner": {
+    "type": "vidur",
+    "vidur_root": "third_party/SimAI/vidur-alibabacloud",
+    "output_dir": "runs/simai_bench_real",
+    "python_bin": "/home/haiyuan/MLSysBench/.venv311/bin/python",
+    "timeout_seconds": 900,
+    "env": {
+      "CUDA_HOME": "/usr/local/cuda-12.9",
+      "PATH": "/home/haiyuan/MLSysBench/.venv311/bin:/usr/local/cuda-12.9/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "LD_LIBRARY_PATH": "/home/haiyuan/MLSysBench/.venv311/lib/python3.11/site-packages/torch/lib:/usr/local/cuda-12.9/lib64",
+      "TORCH_CUDA_ARCH_LIST": "8.9",
+      "DG_JIT_NVCC_COMPILER": "/home/haiyuan/MLSysBench/scripts/deepgemm_nvcc_sm89_wrapper.sh"
+    }
+  }
+}

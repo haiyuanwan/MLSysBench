@@ -2,11 +2,15 @@
 .env.*
 !.env.example
 .venv/
+.venv311/
+.cuda-12.8-compat/
 __pycache__/
 *.pyc
 runs/
 third_party/SimAI/bin/
 third_party/SimAI/results/
+third_party/SimAI/analytical_EndToEnd_*.csv
+third_party/SimAI/tmp_simai_inference_workload/
 third_party/SimAI/aicb/results/
 third_party/SimAI/astra-sim-alibabacloud/build/*/build/
 third_party/SimAI/vidur-alibabacloud/cache/

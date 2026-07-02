@@ -86,16 +86,7 @@ class Qwen3MoeAttention(torch.nn.Module):
         else:
             n = self.args.hidden_size
             k = self.args.num_attention_heads  * self.args.head_dim // self.tp
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-        deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        diff = calc_diff(out, ref_out)
-        assert diff < 0.001, f'{m=}, {k=}, {n=}, {diff:.5f}'
-        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
-        def test_func():
-            # deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
-            deep_gemm.fp8_gemm_nt(x_fp8, y_fp8, out, c=c, disable_ue8m0_cast=True, recipe = None)
-        t = bench_kineto(test_func, 'fp8_gemm', suppress_kineto_output=True)
+        t = bench_fp8_gemm_nt_or_bf16(m, k, n)
         return t
     def _qk_norm(self, q_or_k, m):
         head_dim = self.args.head_dim

@@ -182,6 +182,92 @@ def construct(m: int, k: int, n: int) -> \
     a_fp8, b_fp8, c, d, ref_d = generate_normal(m, n, k, MajorTypeAB.KMajor, MajorTypeAB.KMajor, False, torch.bfloat16, KernelType.Kernel1D2D)
     return a_fp8, b_fp8, c, d, ref_d
 
+
+def _bench_cuda_events(fn, num_warmups: int = 5, num_tests: int = 30) -> float:
+    torch.cuda.synchronize()
+    for _ in range(num_warmups):
+        fn()
+
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
+    for _ in range(num_tests):
+        fn()
+    end_event.record()
+    torch.cuda.synchronize()
+    return start_event.elapsed_time(end_event) / num_tests / 1e3
+
+
+def _bench_bf16_matmul_nt(m: int, k: int, n: int) -> float:
+    x = torch.randn((m, k), device="cuda", dtype=torch.bfloat16)
+    y = torch.randn((n, k), device="cuda", dtype=torch.bfloat16)
+    out = torch.empty((m, n), device="cuda", dtype=torch.bfloat16)
+
+    def test_func():
+        torch.mm(x, y.t(), out=out)
+
+    return _bench_cuda_events(test_func)
+
+
+def _bench_grouped_bf16_matmul_nt(num_groups: int, expected_m_per_group: int, k: int, n: int) -> float:
+    if num_groups <= 0 or expected_m_per_group <= 0 or k <= 0 or n <= 0:
+        return 0
+    x = torch.randn((num_groups, expected_m_per_group, k), device="cuda", dtype=torch.bfloat16)
+    y = torch.randn((num_groups, n, k), device="cuda", dtype=torch.bfloat16)
+    out = torch.empty((num_groups, expected_m_per_group, n), device="cuda", dtype=torch.bfloat16)
+
+    def test_func():
+        for group_id in range(num_groups):
+            torch.mm(x[group_id], y[group_id].t(), out=out[group_id])
+
+    return _bench_cuda_events(test_func)
+
+
+def bench_fp8_gemm_nt_or_bf16(m: int, k: int, n: int) -> float:
+    if m <= 0 or k <= 0 or n <= 0:
+        return 0
+    if torch.cuda.get_device_capability()[0] < 9:
+        return _bench_bf16_matmul_nt(m, k, n)
+
+    x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
+    try:
+        deep_gemm.fp8_gemm_nt(
+            x_fp8,
+            y_fp8,
+            out,
+            c=c,
+            recipe=(1, 128, 128),
+            disable_ue8m0_cast=True,
+        )
+        diff = calc_diff(out, ref_out)
+        assert diff < 0.001, f"{m=}, {k=}, {n=}, {diff:.5f}"
+
+        x_fp8, y_fp8, c, out, ref_out = construct(m, k, n)
+
+        def test_func():
+            deep_gemm.fp8_gemm_nt(
+                x_fp8,
+                y_fp8,
+                out,
+                c=c,
+                recipe=(1, 128, 128),
+                disable_ue8m0_cast=True,
+            )
+
+        return bench_kineto(test_func, "fp8_gemm", suppress_kineto_output=True)
+    except RuntimeError as exc:
+        message = str(exc)
+        fallback_markers = (
+            "Unsupported architecture or scaling factor types",
+            "Unsupported gpu architecture 'sm_89a'",
+            "invalid or no value specified with --nv_arch flag",
+            "NVCC compilation failed",
+            "Unknown recipe",
+        )
+        if not any(marker in message for marker in fallback_markers):
+            raise
+        return _bench_bf16_matmul_nt(m, k, n)
+
 # This function uses generate_m_grouped_masked and tests m_grouped_fp8_gemm_nt_masked
 def test_func_masked(num_groups, expected_m_per_group, k, n) -> None:
     [(kerneltype, max_m)] = enumerate_m_grouped_masked()
@@ -194,6 +280,7 @@ def test_func_masked(num_groups, expected_m_per_group, k, n) -> None:
         d,
         masked_m,
         expected_m_per_group,
+        recipe=(1, 128, 128),
         disable_ue8m0_cast=True,
     )
 
@@ -204,10 +291,12 @@ def test_func_contiguous(num_groups, expected_m_per_group, k, n) -> None:
         num_groups, expected_m_per_group, n, k, major_a, major_b
     )
     deep_gemm.m_grouped_fp8_gemm_nt_contiguous(
-        a_fp8, b_fp8, d, m_indices, disable_ue8m0_cast=True
+        a_fp8, b_fp8, d, m_indices, recipe=(1, 128, 128), disable_ue8m0_cast=True
     )
 
 def bench_masked(num_groups, expected_m_per_group, k, n) -> float:
+    if torch.cuda.get_device_capability()[0] < 9:
+        return _bench_grouped_bf16_matmul_nt(num_groups, expected_m_per_group, k, n)
     [(kerneltype, max_m)] = enumerate_m_grouped_masked()
     a_fp8, b_fp8, masked_m, d, ref_d = generate_m_grouped_masked(
         num_groups, max_m, expected_m_per_group, n, k
@@ -219,17 +308,20 @@ def bench_masked(num_groups, expected_m_per_group, k, n) -> float:
             d,
             masked_m,
             expected_m_per_group,
+            recipe=(1, 128, 128),
             disable_ue8m0_cast=True,
         )
     return bench_kineto(test_func, "fp8_gemm", suppress_kineto_output=True)
 
 def bench_contiguous(num_groups, expected_m_per_group, k, n) -> float:
+    if torch.cuda.get_device_capability()[0] < 9:
+        return _bench_grouped_bf16_matmul_nt(num_groups, expected_m_per_group, k, n)
     [(kerneltype, major_a, major_b)] = enumerate_m_grouped_contiguous()
     m, a_fp8, b_fp8, m_indices, d, ref_d = generate_m_grouped_contiguous(
         num_groups, expected_m_per_group, n, k, major_a, major_b
     )
     def test_func():
         deep_gemm.m_grouped_fp8_gemm_nt_contiguous(
-            a_fp8, b_fp8, d, m_indices, disable_ue8m0_cast=True
+            a_fp8, b_fp8, d, m_indices, recipe=(1, 128, 128), disable_ue8m0_cast=True
         )
     return bench_kineto(test_func, "fp8_gemm", suppress_kineto_output=True)
