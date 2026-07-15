@@ -11,8 +11,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mlsysbench.simai_bench.agent_runner import run_agent_loop, run_agent_once
+from mlsysbench.simai_bench.aggregation import aggregate_runs
+from mlsysbench.simai_bench.calibration import analyze_calibration
 from mlsysbench.simai_bench.actions import validate_changes
-from mlsysbench.simai_bench.cli_agent import prepare_public_workspace, run_cli_agent
+from mlsysbench.simai_bench.cli_agent import (
+    _wrap_with_bwrap,
+    prepare_public_workspace,
+    run_cli_agent,
+)
 from mlsysbench.simai_bench.chat_cli_agent import _chat_completion
 from mlsysbench.simai_bench.codex_ccswitch import (
     CodexCCSwitchSpec,
@@ -33,7 +39,7 @@ from mlsysbench.simai_bench.model_client import (
     make_model_client,
 )
 from mlsysbench.simai_bench.runner import VidurRunner, detect_aicb_failure_or_default
-from mlsysbench.simai_bench.schema import RunnerSpec, SLO, ScenarioSpec, TaskSpec
+from mlsysbench.simai_bench.schema import MetricGate, RunnerSpec, SLO, ScenarioSpec, TaskSpec
 from mlsysbench.simai_bench.search import run_search
 from mlsysbench.simai_bench.task_validation import validate_task
 
@@ -42,6 +48,10 @@ ROOT = Path(__file__).resolve().parents[1]
 TASK = ROOT / "tasks" / "simai_gym" / "l1_scheduler_choice"
 REAL_TASK = ROOT / "tasks" / "simai_gym" / "qwen3_next_aicb_benchmark"
 SCALE_TASK = ROOT / "tasks" / "scale_up" / "mock_scale_transfer"
+CODE_TASK = ROOT / "tasks" / "code_scheduler" / "workload_aware_chunked_prefill"
+PATCH_TRANSFER_TASK = ROOT / "tasks" / "patch_transfer" / "adaptive_chunk_patch"
+POLICY_TRANSFER_TASK = ROOT / "tasks" / "policy_transfer" / "nonstationary_fair_scheduler"
+MULTIFIDELITY_TASK = ROOT / "tasks" / "multifidelity" / "scheduler_probe_allocation"
 SCENARIO_TASKS = {
     "prefill_heavy": ROOT / "tasks" / "scenarios" / "mock_prefill_heavy",
     "decode_heavy": ROOT / "tasks" / "scenarios" / "mock_decode_heavy",
@@ -426,6 +436,305 @@ class SimAIBenchTest(unittest.TestCase):
             self.assertEqual(context["scenario"]["family"], "high_load")
             self.assertEqual(context["scenario"]["transfer"], "scale_up")
 
+    def test_code_task_workspace_contains_editable_starter_only(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            prepare_public_workspace(
+                CODE_TASK,
+                workspace,
+                max_queries=3,
+                wall_time_seconds=60,
+            )
+
+            context = json.loads((workspace / "task_context.json").read_text(encoding="utf-8"))
+            self.assertEqual(context["schema_version"], 2)
+            self.assertEqual(context["submission"]["type"], "code")
+            self.assertEqual(context["submission"]["editable_files"], ["scheduler.py"])
+            self.assertTrue((workspace / "solution" / "scheduler.py").is_file())
+            self.assertFalse((workspace / "hidden").exists())
+
+    def test_code_task_baseline_replays_and_improved_patch_scores(self):
+        validation = validate_task(CODE_TASK)
+        self.assertTrue(validation.valid, validation.errors)
+
+        improved_source = """def schedule(requests, limits):
+    decode = [r for r in requests if r['remaining_prefill_tokens'] == 0]
+    if decode:
+        return [
+            {'request_id': r['id'], 'tokens': 1}
+            for r in decode[:limits['max_batch_size']]
+        ]
+    requests = sorted(requests, key=lambda r: (r['remaining_prefill_tokens'], r['id']))
+    result = []
+    budget = limits['max_batch_tokens']
+    for request in requests[:limits['max_batch_size']]:
+        tokens = min(64, request['remaining_prefill_tokens'], budget)
+        if tokens <= 0:
+            break
+        result.append({'request_id': request['id'], 'tokens': tokens})
+        budget -= tokens
+    return result
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            submission_path = Path(tmpdir) / "submission.json"
+            submission_path.write_text(
+                json.dumps(
+                    {
+                        "changes": {},
+                        "files": {"scheduler.py": improved_source},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = evaluate_submission(CODE_TASK, submission_path)
+
+        self.assertTrue(result.valid, result.runner_error)
+        self.assertGreater(result.ratio, 2.0)
+
+    def test_code_task_rejects_non_editable_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            submission_path = Path(tmpdir) / "submission.json"
+            submission_path.write_text(
+                json.dumps(
+                    {
+                        "changes": {},
+                        "files": {"hidden/evaluator.py": "pass\n"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = evaluate_submission(CODE_TASK, submission_path)
+
+        self.assertFalse(result.valid)
+        self.assertIn("non-editable files", result.runner_error)
+
+    def test_transfer_protocol_fixtures_validate_and_replay(self):
+        expected_tracks = {
+            PATCH_TRANSFER_TASK: "patch_transfer",
+            POLICY_TRANSFER_TASK: "policy_transfer",
+            MULTIFIDELITY_TASK: "multifidelity",
+        }
+        for task_path, track in expected_tracks.items():
+            with self.subTest(task=task_path.name):
+                task = TaskSpec.load(task_path)
+                validation = validate_task(task_path)
+                self.assertEqual(task.schema_version, 3)
+                self.assertEqual(task.track, track)
+                self.assertEqual(task.provenance.publication_status, "fixture")
+                self.assertEqual(task.provenance.calibration_status, "proxy_only")
+                self.assertTrue(validation.valid, validation.errors)
+                self.assertEqual(validation.warnings, [])
+
+    def test_publication_candidate_requires_external_calibrated_provenance(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_copy = Path(tmpdir) / "task"
+            shutil.copytree(MULTIFIDELITY_TASK, task_copy)
+            task_path = task_copy / "task.json"
+            payload = json.loads(task_path.read_text(encoding="utf-8"))
+            payload["provenance"].update(
+                {
+                    "source_type": "upstream_pr",
+                    "source_url": "https://github.com/example/project/pull/1",
+                    "source_revision": "abc123",
+                    "license": "Apache-2.0",
+                    "validators": ["independent reviewer"],
+                    "publication_status": "candidate",
+                    "calibration_status": "partially_calibrated",
+                }
+            )
+            task_path.write_text(json.dumps(payload), encoding="utf-8")
+            validation = validate_task(task_copy)
+
+        self.assertFalse(validation.valid)
+        self.assertTrue(any("contamination cutoff" in error for error in validation.errors))
+        self.assertTrue(any("calibrated or real-hardware" in error for error in validation.errors))
+
+    def test_custom_metric_gate_blocks_an_otherwise_valid_result(self):
+        task = TaskSpec.load(POLICY_TRANSFER_TASK)
+        gated_task = replace(
+            task,
+            metric_gates={"tenant_fairness_jain": MetricGate(minimum=1.01)},
+        )
+        result = evaluate_changes(
+            gated_task,
+            gated_task.load_baseline_config(),
+            gated_task.load_allowed_actions(),
+            {},
+            phase="final",
+        )
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("tenant_fairness_jain" in failure for failure in result.failures))
+
+    def test_multifidelity_cli_agent_enforces_cost_and_probe_budgets(self):
+        fake_agent = "\n".join(
+            [
+                "import json, pathlib, subprocess, sys",
+                "def query(name, fidelity):",
+                "    payload = {'changes': {}, 'fidelity': fidelity}",
+                "    path = pathlib.Path(name + '.json')",
+                "    path.write_text(json.dumps(payload), encoding='utf-8')",
+                "    return subprocess.run([sys.executable, 'evaluate_dev.py', str(path)], check=False).returncode",
+                "codes = []",
+                "codes.extend(query('probe' + str(i), 'hardware_probe') for i in range(3))",
+                "codes.extend(query('sim' + str(i), 'simulator') for i in range(5))",
+                "pathlib.Path('query_returncodes.json').write_text(json.dumps(codes), encoding='utf-8')",
+                "pathlib.Path('final_submission.json').write_text(json.dumps({'changes': {}}), encoding='utf-8')",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_cli_agent(
+                MULTIFIDELITY_TASK,
+                Path(tmpdir) / "run",
+                [sys.executable, "-c", fake_agent],
+                wall_time_seconds=30,
+                max_queries=20,
+                isolation="none",
+            )
+            codes = json.loads(
+                (result.workspace / "query_returncodes.json").read_text(encoding="utf-8")
+            )
+            trajectory = json.loads(result.trajectory_path.read_text(encoding="utf-8"))
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            aggregate = aggregate_runs(Path(tmpdir) / "run", bootstrap_samples=20)
+
+        self.assertEqual(codes, [0, 0, 1, 0, 0, 0, 0, 1])
+        self.assertEqual(len(trajectory), 6)
+        self.assertEqual(sum(item["cost_units"] for item in trajectory), 12)
+        self.assertEqual(manifest["budgets"]["development_cost_units"], 12)
+        self.assertEqual(manifest["budgets"]["development_cost_units_used"], 12)
+        self.assertEqual(aggregate["summary"]["runs"], 1)
+        self.assertEqual(aggregate["summary"]["mean_cost_units_used"], 12)
+        self.assertEqual(
+            aggregate["runs"][0]["fidelity_queries"],
+            {"hardware_probe": 2, "simulator": 4},
+        )
+        self.assertIsNone(result.final_error)
+        self.assertTrue(result.final_evaluation.valid)
+
+    def test_multifidelity_fixture_contains_a_calibration_rank_reversal(self):
+        task = TaskSpec.load(MULTIFIDELITY_TASK)
+        baseline = task.load_baseline_config()
+        actions = task.load_allowed_actions()
+        starter = (task.submission.starter_dir / "scheduler.py").read_text(encoding="utf-8")
+        policies = {
+            chunk: {"scheduler.py": starter.replace("min(64,", f"min({chunk},")}
+            for chunk in (16, 256)
+        }
+
+        simulator = {
+            chunk: evaluate_changes(
+                task,
+                baseline,
+                actions,
+                {},
+                phase="development",
+                files=files,
+                fidelity="simulator",
+            ).ratio
+            for chunk, files in policies.items()
+        }
+        hardware_proxy = {
+            chunk: evaluate_changes(
+                task,
+                baseline,
+                actions,
+                {},
+                phase="development",
+                files=files,
+                fidelity="hardware_probe",
+            ).ratio
+            for chunk, files in policies.items()
+        }
+        final = {
+            chunk: evaluate_changes(
+                task,
+                baseline,
+                actions,
+                {},
+                phase="final",
+                files=files,
+            ).ratio
+            for chunk, files in policies.items()
+        }
+
+        self.assertGreater(simulator[256], simulator[16])
+        self.assertGreater(hardware_proxy[16], hardware_proxy[256])
+        self.assertGreater(final[16], final[256])
+
+    def test_patch_transfer_fixture_reverses_public_static_chunk_shortcut(self):
+        task = TaskSpec.load(PATCH_TRANSFER_TASK)
+        baseline = task.load_baseline_config()
+        actions = task.load_allowed_actions()
+        starter = (task.submission.starter_dir / "scheduler.py").read_text(encoding="utf-8")
+        policies = {
+            chunk: {"scheduler.py": starter.replace("min(128,", f"min({chunk},")}
+            for chunk in (16, 256)
+        }
+        development = {
+            chunk: evaluate_changes(
+                task, baseline, actions, {}, phase="development", files=files
+            ).agent_metrics["robust_goodput_rps"]
+            for chunk, files in policies.items()
+        }
+        final = {
+            chunk: evaluate_changes(
+                task, baseline, actions, {}, phase="final", files=files
+            ).agent_metrics["robust_goodput_rps"]
+            for chunk, files in policies.items()
+        }
+
+        self.assertGreater(development[256], development[16])
+        self.assertGreater(final[16], final[256])
+
+    def test_calibration_analysis_reports_ranking_and_decision_fidelity(self):
+        payload = {
+            "metric": "goodput_rps",
+            "direction": "maximize",
+            "top_k": 1,
+            "records": [
+                {"config_id": "a", "simulator": 10.0, "hardware": [8.0, 8.2, 7.8]},
+                {"config_id": "b", "simulator": 9.0, "hardware": [9.0, 9.1, 8.9]},
+                {"config_id": "c", "simulator": 8.0, "hardware": [10.0, 10.2, 9.8]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "pairs.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            report = analyze_calibration(path)
+
+        self.assertAlmostEqual(report["spearman_rank_correlation"], -1.0)
+        self.assertAlmostEqual(report["kendall_tau_b"], -1.0)
+        self.assertEqual(report["pairwise_decision_agreement"], 0.0)
+        self.assertEqual(report["top_k_overlap"], 0.0)
+        self.assertEqual(report["repeated_hardware_configurations"], 3)
+
+    def test_cli_agent_collects_code_artifact_for_clean_final_replay(self):
+        agent_source = (
+            "import pathlib, subprocess, sys; "
+            "pathlib.Path('candidate.json').write_text('{\"changes\": {}}', encoding='utf-8'); "
+            "subprocess.run([sys.executable, 'evaluate_dev.py', 'candidate.json'], check=True); "
+            "pathlib.Path('final_submission.json').write_text("
+            "'{\"changes\": {}}', encoding='utf-8')"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_cli_agent(
+                CODE_TASK,
+                Path(tmpdir) / "run",
+                [sys.executable, "-c", agent_source],
+                wall_time_seconds=20,
+                max_queries=1,
+                isolation="none",
+            )
+            normalized = json.loads(
+                (result.output_dir / "final_submission.json").read_text(encoding="utf-8")
+            )
+
+        self.assertIsNone(result.final_error)
+        self.assertTrue(result.final_evaluation.valid)
+        self.assertEqual(result.queries_used, 1)
+        self.assertIn("scheduler.py", normalized["files"])
+
     def test_benchmark_mode_requires_canonical_codex_scaffold(self):
         with tempfile.TemporaryDirectory() as tmpdir, self.assertRaisesRegex(
             ConfigError, r"codex-cli\+cc-switch"
@@ -455,6 +764,33 @@ class SimAIBenchTest(unittest.TestCase):
                 agent_scaffold="codex-cli+cc-switch",
                 benchmark_mode=True,
             )
+
+    def test_bwrap_mounts_workspace_at_its_canonical_absolute_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            workspace = root / "run" / "workspace"
+            task_dir = root / "private-task"
+            state_dir = root / "agent-state"
+            workspace.mkdir(parents=True)
+            task_dir.mkdir()
+            state_dir.mkdir()
+
+            command = _wrap_with_bwrap(
+                [sys.executable, "-c", "pass"],
+                workspace,
+                task_dir,
+                [state_dir],
+            )
+
+        workspace_value = str(workspace)
+        workspace_bind = command.index(workspace_value)
+        self.assertEqual(
+            command[workspace_bind - 1 : workspace_bind + 2],
+            ["--bind", workspace_value, workspace_value],
+        )
+        chdir = command.index("--chdir")
+        self.assertEqual(command[chdir + 1], workspace_value)
+        self.assertNotIn("/workspace", command)
 
     def test_cli_agent_enforces_landlock_query_budget_and_clean_final_replay(self):
         private_metrics = SCALE_TASK / "hidden" / "mock_metrics.json"

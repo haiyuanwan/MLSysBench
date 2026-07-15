@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+from mlsysbench.simai_bench.aggregation import aggregate_runs
+from mlsysbench.simai_bench.calibration import analyze_calibration
 from mlsysbench.simai_bench.agent_runner import run_agent_loop, run_agent_once
 from mlsysbench.simai_bench.cli_agent import run_cli_agent
 from mlsysbench.simai_bench.codex_ccswitch import (
@@ -114,6 +116,21 @@ def main() -> None:
         type=float,
         help="Optional development-search wall-clock limit",
     )
+
+    aggregate_parser = subparsers.add_parser(
+        "aggregate-results",
+        help="Aggregate CLI-agent manifests, trajectories, costs, and failures",
+    )
+    aggregate_parser.add_argument("--runs-dir", required=True)
+    aggregate_parser.add_argument("--output", help="Optional aggregate JSON path")
+    aggregate_parser.add_argument("--bootstrap-samples", type=int, default=2000)
+
+    calibration_parser = subparsers.add_parser(
+        "analyze-calibration",
+        help="Analyze paired simulator and repeated hardware measurements",
+    )
+    calibration_parser.add_argument("--input", required=True)
+    calibration_parser.add_argument("--output", help="Optional calibration report JSON path")
 
     runtime_parser = subparsers.add_parser(
         "prepare-codex-runtime",
@@ -282,6 +299,19 @@ def main() -> None:
             wall_time_seconds=args.wall_time_seconds,
         )
         print(json.dumps(search_result.to_dict(), indent=2, sort_keys=True))
+    elif args.command == "aggregate-results":
+        aggregate = aggregate_runs(
+            args.runs_dir,
+            bootstrap_samples=args.bootstrap_samples,
+        )
+        if args.output:
+            write_json(args.output, aggregate)
+        print(json.dumps(aggregate, indent=2, sort_keys=True))
+    elif args.command == "analyze-calibration":
+        calibration = analyze_calibration(args.input)
+        if args.output:
+            write_json(args.output, calibration)
+        print(json.dumps(calibration, indent=2, sort_keys=True))
     elif args.command == "prepare-codex-runtime":
         manifest = install_runtime_assets(
             asset_dir=args.asset_dir,

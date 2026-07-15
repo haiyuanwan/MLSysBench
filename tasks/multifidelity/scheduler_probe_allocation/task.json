@@ -1,0 +1,49 @@
+{
+  "schema_version": 3,
+  "task_id": "scheduler_probe_allocation_fixture_v1",
+  "track": "multifidelity",
+  "description": "Allocate a fixed development budget between a cheap biased simulator and scarce higher-cost hardware-proxy probes, then submit a scheduler for unseen target timing and workload profiles.",
+  "scenario": {
+    "family": "balanced",
+    "transfer": "hardware_shift",
+    "starting_point": "expert_template",
+    "profiles": ["mixed_prompt_output", "mixed_concurrency"]
+  },
+  "baseline_config": "baseline_config.json",
+  "allowed_actions": "allowed_actions.json",
+  "objective": {"primary_metric": "robust_goodput_rps", "direction": "maximize", "score_cap": 4.0},
+  "slo": {"p99_ttft_ms": 1800, "p99_tbt_ms": 120, "p99_e2e_ms": 2400},
+  "development": {
+    "baseline_metrics": "public/simulator_baseline_metrics.json",
+    "eval_workload": "public/simulator_workload.json",
+    "default_fidelity": "simulator",
+    "fidelities": {
+      "simulator": {
+        "kind": "simulator",
+        "cost_units": 1,
+        "max_queries": 12,
+        "baseline_metrics": "public/simulator_baseline_metrics.json",
+        "eval_workload": "public/simulator_workload.json"
+      },
+      "hardware_probe": {
+        "kind": "hardware_proxy",
+        "cost_units": 4,
+        "max_queries": 2,
+        "baseline_metrics": "public/hardware_proxy_baseline_metrics.json",
+        "eval_workload": "public/hardware_proxy_workload.json"
+      }
+    }
+  },
+  "hidden": {"baseline_metrics": "hidden/baseline_metrics.json", "eval_workload": "hidden/eval_workload.json"},
+  "submission": {"type": "code", "starter_dir": "public/starter", "editable_files": ["scheduler.py"], "max_file_bytes": 32768},
+  "runner": {"type": "python_code", "evaluator": "builtin:scheduler_policy_v1", "timeout_seconds": 60},
+  "constraints": {"max_gpu_units": 1, "development_max_gpu_units": 1, "max_steps": 12, "max_development_cost_units": 12, "immutable_fields": []},
+  "provenance": {
+    "source_type": "hand_authored_fixture",
+    "task_authors": ["MLSysBench maintainers"],
+    "validators": [],
+    "publication_status": "fixture",
+    "calibration_status": "proxy_only",
+    "notes": "hardware_probe is a deliberately biased higher-fidelity simulation, not a physical GPU measurement."
+  }
+}

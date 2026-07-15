@@ -3,12 +3,13 @@
 MLSysBench is a simulator-grounded benchmark for studying whether AI agents
 can work as inference-systems engineers. An agent receives a public task,
 allowed configuration actions, simulator feedback, and a fixed experiment
-budget. It must explore deliberately and submit one final configuration for a
-held-out workload or deployment scale.
+budget. It must explore deliberately and submit one final configuration or a
+bounded source artifact for a held-out workload or deployment scale.
 
 The repository currently provides an executable research prototype for
 configuration search, scheduler selection, and scale transfer using mock
-surfaces and Vidur+AICB. It is not yet a complete or publication-ready
+surfaces and Vidur+AICB. It also includes schema-v3 PatchTransfer,
+PolicyTransfer, and MultiFidelity protocol fixtures. It is not yet a complete or publication-ready
 benchmark suite. In particular, the real tasks still need simulator-to-hardware
 calibration, a true development/final split, broader task coverage, and repeated
 agent runs. See [Status and roadmap](docs/status-and-roadmap.md) for the exact
@@ -28,6 +29,16 @@ boundary.
   replay for CLI agents;
 - a real Vidur+AICB execution path with fallback detection and checked-in
   baseline summaries;
+- schema-v2 code submissions with editable-file allowlists, development
+  evaluation, clean starter reconstruction, and a deterministic scheduler task;
+- schema-v3 provenance gates that prevent hand-authored or proxy-only tasks
+  from being labeled as publication candidates;
+- multi-profile robust-goodput, worst-profile, tenant-fairness, and SLO metrics;
+- cost-accounted development fidelities with per-fidelity query caps and a
+  tested simulator-versus-hardware-proxy allocation task;
+- result aggregation for failures, uncertainty, transfer gaps, duplicate
+  experiments, fidelity use and cost, plus paired simulator/hardware
+  calibration analysis;
 - dependency-free unit tests and task pre-publication validation.
 
 ## Quick start
@@ -98,8 +109,9 @@ minimize: ratio = baseline_metric / candidate_metric
 score = min(ratio, score_cap)
 ```
 
-Validity, resource, and SLO gates are applied first. Invalid candidates score
-zero. A valid baseline-equivalent result scores `1.0`.
+Validity, resource, SLO, and task-specific metric gates are applied first.
+Invalid candidates score zero. A valid baseline-equivalent result scores
+`1.0`.
 
 The four synthetic scenario fixtures keep development and final workloads and
 performance surfaces separate. The final evaluator is called once after the
@@ -117,6 +129,10 @@ read [Benchmark protocol](docs/benchmark-protocol.md).
 | `scenarios/mock_decode_heavy` | Mock | Short/long output and TBT behavior | Valid Stage 1 fixture; synthetic only |
 | `scale_up/mock_scale_transfer` | Mock | Burst/Poisson/constant high-load scale transfer | Valid Stage 1 fixture; synthetic only |
 | `scenarios/mock_balanced` | Mock | Mixed prompt/output and concurrency behavior | Valid Stage 1 fixture; synthetic only |
+| `code_scheduler/workload_aware_chunked_prefill` | Python scheduler simulator | Modify batching code under held-out load shift | Valid code-protocol fixture; synthetic timing model |
+| `patch_transfer/adaptive_chunk_patch` | Multi-profile scheduler proxy | Patch transfer across burst and long-prompt profiles | Schema-v3 fixture; proxy only |
+| `policy_transfer/nonstationary_fair_scheduler` | Multi-profile scheduler proxy | Online policy, priority and tenant fairness | Schema-v3 fixture; synthetic trace |
+| `multifidelity/scheduler_probe_allocation` | Biased simulator + hardware proxy | Allocate a shared cost budget across fidelities | Schema-v3 fixture; no physical GPU measurements |
 | `simai_gym/l1_scheduler_choice` | Mock | Early scheduler-choice example used by unit tests | Legacy prototype; fails publication validation |
 | `simai_gym/qwen3_next_aicb_smoke` | Vidur+AICB | CUDA/AICB health check | Smoke test only; no separate development phase |
 | `simai_gym/qwen3_next_aicb_benchmark` | Vidur+AICB | Real multi-request scheduler comparison | Experimental; one host and no hardware calibration |
@@ -125,6 +141,11 @@ Run `validate-task` before using any task in an experiment. For real runners,
 `--run-real-baseline` additionally executes the expensive baseline replay.
 The detailed validation results and remediation order are maintained in
 [Status and roadmap](docs/status-and-roadmap.md).
+
+The code scheduler fixture executes untrusted candidate logic behind a narrow
+JSON observation/action interface. Bubblewrap is preferred; Landlock is a
+filesystem-only fallback on development hosts without user namespaces. The
+fixture validates the code-artifact protocol, not Vidur or hardware fidelity.
 
 ## Interfaces
 
@@ -135,12 +156,18 @@ The detailed validation results and remediation order are maintained in
 | `run-agent` | Generate and evaluate a one-shot model submission |
 | `run-agent-loop` | Run a measured multi-step optimization trajectory |
 | `search` | Run grid, random, TPE, or SMAC3 under a matched budget |
+| `aggregate-results` | Aggregate run validity, uncertainty, transfer behavior, process metrics, and cost |
+| `analyze-calibration` | Compare paired simulator and repeated hardware measurements |
 | `run-cli-agent` | Run a filesystem-capable agent in a public workspace |
 | `prepare-codex-runtime` | Prepare pinned Codex and CC Switch runtime assets |
 | `run-isolated-codex` | Run or resume Codex against an isolated workspace |
 
 Use `python3 -m mlsysbench.simai_bench COMMAND --help` as the authoritative
 option reference.
+
+The current research positioning and all primary sources consulted on
+2026-07-16 are preserved in [Related work](docs/related-work.md) and
+[the machine-readable source catalog](docs/related-work-sources.json).
 
 ### Model-backed agents
 
@@ -206,6 +233,7 @@ tasks/                    versioned task fixtures and backend configuration
 submissions/examples/     example configuration diffs
 benchmarks/baselines/     checked-in real baseline summaries
 benchmarks/protocol/      protocol experiments and explicit caveats
+benchmarks/calibration/   paired simulator/hardware calibration bundles
 scripts/                  repository checks and reproducible run wrappers
 docs/                     design, architecture, runbooks, surveys, and status
 tests/                    dependency-free unit and integration-style tests
@@ -233,8 +261,9 @@ they do not establish cross-hardware simulator fidelity or model rankings.
 
 ## Known limitations
 
-The current repository has four complete synthetic Stage 1 protocol fixtures
-and two experimental real-runner tasks, but it does not yet support
+The current repository has four canonical scenario fixtures, four bounded
+scheduler/transfer protocol fixtures, and two experimental real-runner tasks,
+but it does not yet support
 publication-grade model rankings. Real tasks still use host-specific runtime
 paths, lack genuine development/final separation, and have not been calibrated
 across hardware. The legacy `l1_scheduler_choice` fixture is intentionally

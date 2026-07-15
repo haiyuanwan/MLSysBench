@@ -15,6 +15,8 @@ scope.
 | [Status and roadmap](status-and-roadmap.md) | Canonical | Verified capabilities, staged deliverables, and acceptance criteria |
 | [Implementation and CUDA runbook](simai-benchmark-code.md) | Current but host-specific | Real Vidur+AICB setup and execution |
 | [Task design lessons](task-design-lessons.md) | Current methodology | Invariants learned from CLI-agent runs |
+| [Related work](related-work.md) | Current literature review | Primary-source comparison and paper positioning |
+| [Task intake and publication gates](task-intake-and-publication-gates.md) | Normative | Provenance, calibration, contamination, and promotion rules |
 | [Task catalog](../tasks/README.md) | Canonical | Task maturity and publication requirements |
 | [Result catalog](../benchmarks/README.md) | Canonical | Evidence levels and checked-in summaries |
 

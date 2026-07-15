@@ -1,0 +1,37 @@
+{
+  "scenario_family": "balanced",
+  "profiles": ["mixed_prompt_output", "mixed_concurrency"],
+  "seed": 9173,
+  "cases": [
+    {
+      "name": "burst",
+      "timing_model": {"prefill_linear_ms": 0.01, "prefill_quadratic_ms": 0.0006, "mixed_interference_ms": 0.002},
+      "limits": {"max_batch_tokens": 256, "max_batch_size": 8, "ttft_slo_ms": 95, "tbt_slo_ms": 5, "e2e_slo_ms": 220},
+      "requests": [
+        {"arrived_at_ms": 0, "prompt_tokens": 768, "output_tokens": 8},
+        {"arrived_at_ms": 0, "prompt_tokens": 18, "output_tokens": 28},
+        {"arrived_at_ms": 0, "prompt_tokens": 36, "output_tokens": 20},
+        {"arrived_at_ms": 0, "prompt_tokens": 80, "output_tokens": 16},
+        {"arrived_at_ms": 1, "prompt_tokens": 24, "output_tokens": 30},
+        {"arrived_at_ms": 1, "prompt_tokens": 320, "output_tokens": 10},
+        {"arrived_at_ms": 2, "prompt_tokens": 42, "output_tokens": 18},
+        {"arrived_at_ms": 2, "prompt_tokens": 160, "output_tokens": 12}
+      ]
+    },
+    {
+      "name": "long_prompt_stream",
+      "timing_model": {"prefill_quadratic_ms": 0.000008, "mixed_interference_ms": 0.0004},
+      "limits": {"max_batch_tokens": 384, "max_batch_size": 10, "ttft_slo_ms": 130, "tbt_slo_ms": 6, "e2e_slo_ms": 280},
+      "requests": [
+        {"arrived_at_ms": 0, "prompt_tokens": 1024, "output_tokens": 6},
+        {"arrived_at_ms": 3, "prompt_tokens": 48, "output_tokens": 24},
+        {"arrived_at_ms": 6, "prompt_tokens": 640, "output_tokens": 8},
+        {"arrived_at_ms": 9, "prompt_tokens": 32, "output_tokens": 26},
+        {"arrived_at_ms": 12, "prompt_tokens": 448, "output_tokens": 10},
+        {"arrived_at_ms": 15, "prompt_tokens": 56, "output_tokens": 20},
+        {"arrived_at_ms": 18, "prompt_tokens": 256, "output_tokens": 12},
+        {"arrived_at_ms": 21, "prompt_tokens": 40, "output_tokens": 22}
+      ]
+    }
+  ]
+}

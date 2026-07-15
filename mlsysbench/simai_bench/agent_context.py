@@ -31,7 +31,11 @@ class AgentTaskContext:
     allowed_actions: dict[str, dict[str, Any]]
     objective: dict[str, Any]
     slo: dict[str, Any]
+    metric_gates: dict[str, dict[str, float | None]]
     constraints: dict[str, Any]
+    submission: dict[str, Any]
+    development_fidelities: dict[str, Any]
+    provenance: dict[str, Any] | None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -81,12 +85,47 @@ def build_agent_context(task_dir: str | Path) -> AgentTaskContext:
             "p99_tbt_ms": task.slo.p99_tbt_ms,
             "p99_e2e_ms": task.slo.p99_e2e_ms,
         },
+        metric_gates={
+            name: {"min": gate.minimum, "max": gate.maximum}
+            for name, gate in task.metric_gates.items()
+        },
         constraints={
             "max_gpu_units": task.constraints.max_gpu_units,
             "development_max_gpu_units": task.constraints.development_max_gpu_units,
             "max_steps": task.constraints.max_steps,
+            "max_development_cost_units": task.constraints.max_development_cost_units,
             "immutable_fields": list(task.constraints.immutable_fields),
         },
+        submission={
+            "type": task.submission.type,
+            "workspace_dir": "solution" if task.submission.type == "code" else None,
+            "editable_files": list(task.submission.editable_files),
+            "max_file_bytes": task.submission.max_file_bytes,
+        },
+        development_fidelities=(
+            {
+                name: {
+                    "kind": spec.kind,
+                    "cost_units": spec.cost_units,
+                    "max_queries": spec.max_queries,
+                    "is_default": name == task.development.default_fidelity,
+                }
+                for name, spec in task.development.fidelities.items()
+            }
+            if task.development is not None and task.development.fidelities
+            else {}
+        ),
+        provenance=(
+            {
+                "source_type": task.provenance.source_type,
+                "license": task.provenance.license,
+                "publication_status": task.provenance.publication_status,
+                "calibration_status": task.provenance.calibration_status,
+                "contamination_cutoff": task.provenance.contamination_cutoff,
+            }
+            if task.provenance is not None
+            else None
+        ),
     )
 
 

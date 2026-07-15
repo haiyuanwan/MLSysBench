@@ -1,0 +1,20 @@
+{
+  "scenario_family": "balanced",
+  "profiles": ["mixed_prompt_output", "mixed_concurrency"],
+  "seed": 5109,
+  "cases": [{
+    "name": "scarce_hardware_proxy",
+    "timing_model": {"launch_ms": 0.52, "prefill_linear_ms": 0.017, "prefill_quadratic_ms": 0.00016, "decode_per_request_ms": 0.076, "mixed_interference_ms": 0.0022},
+    "limits": {"max_batch_tokens": 384, "max_batch_size": 10, "ttft_slo_ms": 110, "tbt_slo_ms": 6, "e2e_slo_ms": 270},
+    "requests": [
+      {"arrived_at_ms": 0, "prompt_tokens": 640, "output_tokens": 8},
+      {"arrived_at_ms": 1, "prompt_tokens": 20, "output_tokens": 28},
+      {"arrived_at_ms": 2, "prompt_tokens": 192, "output_tokens": 12},
+      {"arrived_at_ms": 3, "prompt_tokens": 36, "output_tokens": 24},
+      {"arrived_at_ms": 8, "prompt_tokens": 768, "output_tokens": 7},
+      {"arrived_at_ms": 9, "prompt_tokens": 28, "output_tokens": 26},
+      {"arrived_at_ms": 14, "prompt_tokens": 320, "output_tokens": 10},
+      {"arrived_at_ms": 15, "prompt_tokens": 48, "output_tokens": 20}
+    ]
+  }]
+}

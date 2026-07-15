@@ -1,0 +1,10 @@
+{
+  "metric": "goodput_rps",
+  "direction": "maximize",
+  "top_k": 2,
+  "records": [
+    {"config_id": "config_a", "simulator": {"goodput_rps": 10.0}, "hardware": {"values": [9.4, 9.6, 9.5]}},
+    {"config_id": "config_b", "simulator": {"goodput_rps": 9.0}, "hardware": {"values": [9.1, 9.0, 8.9]}},
+    {"config_id": "config_c", "simulator": {"goodput_rps": 8.0}, "hardware": {"values": [8.4, 8.5, 8.3]}}
+  ]
+}

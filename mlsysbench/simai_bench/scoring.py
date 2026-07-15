@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mlsysbench.simai_bench.schema import Objective, SLO
+from mlsysbench.simai_bench.schema import MetricGate, Objective, SLO
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ def score_metrics(
     objective: Objective,
     slo: SLO,
     runner_success: bool,
+    metric_gates: dict[str, MetricGate] | None = None,
 ) -> ScoreBreakdown:
     failures: list[str] = []
     if not runner_success:
@@ -35,6 +36,8 @@ def score_metrics(
 
     slo_ok, slo_failures = slo.check(agent_metrics)
     failures.extend(slo_failures)
+    for name, gate in (metric_gates or {}).items():
+        failures.extend(gate.check(name, agent_metrics))
 
     valid = not failures and slo_ok
     if not valid or baseline_value is None or agent_value is None:

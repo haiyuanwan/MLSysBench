@@ -50,6 +50,7 @@ def validate_task(
     details: dict[str, Any] = {"schema_version": task.schema_version}
 
     _validate_scenario(task, errors, warnings, details)
+    _validate_provenance(task, errors, warnings, details)
 
     baseline_config = task.load_baseline_config()
     allowed_actions = task.load_allowed_actions()
@@ -58,6 +59,16 @@ def validate_task(
         errors.append(
             "allowed actions are also immutable: " + ", ".join(immutable_actions)
         )
+    if task.submission.type == "code":
+        details["code_submission"] = {
+            "starter_dir": str(task.submission.starter_dir),
+            "editable_files": list(task.submission.editable_files),
+            "max_file_bytes": task.submission.max_file_bytes,
+        }
+        if task.runner.type != "python_code":
+            errors.append("code submissions currently require runner.type python_code")
+    elif task.runner.type == "python_code":
+        errors.append("python_code runner requires submission.type code")
 
     if task.development is None:
         warnings.append("task has no separate development specification")
@@ -74,6 +85,37 @@ def validate_task(
         details["final_seeds"] = final_seeds
         if development_seeds and development_seeds == final_seeds:
             errors.append("development and final workloads use the same recorded seeds")
+        if task.development.fidelities:
+            fidelity_details: dict[str, Any] = {}
+            for name, fidelity in task.development.fidelities.items():
+                fidelity_details[name] = {
+                    "kind": fidelity.kind,
+                    "cost_units": fidelity.cost_units,
+                    "max_queries": fidelity.max_queries,
+                    "workload_sha256": _sha256_file(fidelity.eval_workload),
+                    "baseline_metrics_sha256": _sha256_file(fidelity.baseline_metrics),
+                    "seeds": _seed_values(fidelity.eval_workload),
+                }
+            details["development_fidelities"] = fidelity_details
+            fidelity_hashes = [
+                item["workload_sha256"]
+                for item in fidelity_details.values()
+                if item["workload_sha256"] is not None
+            ]
+            if len(set(fidelity_hashes)) != len(fidelity_hashes):
+                errors.append("development fidelities must not reuse the same workload file")
+            if task.constraints.max_development_cost_units is None:
+                errors.append(
+                    "tasks with development fidelities must declare "
+                    "constraints.max_development_cost_units"
+                )
+            if any(
+                fidelity.kind == "real_hardware"
+                for fidelity in task.development.fidelities.values()
+            ) and task.runner.config.get("evaluator") == "builtin:scheduler_policy_v1":
+                errors.append(
+                    "the built-in scheduler-policy evaluator cannot declare real_hardware fidelity"
+                )
 
     if task.runner.type == "mock":
         _validate_mock_surfaces(
@@ -85,7 +127,7 @@ def validate_task(
             warnings,
             details,
         )
-    if task.runner.type == "mock" or run_real_baseline:
+    if task.runner.type in {"mock", "python_code"} or run_real_baseline:
         _validate_baseline_replay(
             task,
             baseline_config,
@@ -144,6 +186,13 @@ def _validate_scenario(
     phase_paths = {"final": task.hidden.eval_workload}
     if task.development is not None:
         phase_paths["development"] = task.development.eval_workload
+        if task.development.fidelities:
+            phase_paths.update(
+                {
+                    f"development[{name}]": fidelity.eval_workload
+                    for name, fidelity in task.development.fidelities.items()
+                }
+            )
     for phase, path in phase_paths.items():
         workload = _workload_scenario(path)
         details[f"{phase}_workload_scenario"] = workload
@@ -180,6 +229,60 @@ def _validate_scenario(
         warnings.append(
             f"scenario transfer {task.scenario.transfer!r} has no development phase"
         )
+
+
+def _validate_provenance(
+    task: TaskSpec,
+    errors: list[str],
+    warnings: list[str],
+    details: dict[str, Any],
+) -> None:
+    provenance = task.provenance
+    if provenance is None:
+        if task.schema_version >= 3:
+            errors.append("schema-version 3 task has no machine-readable provenance")
+        return
+    details["provenance"] = {
+        "source_type": provenance.source_type,
+        "source_url": provenance.source_url,
+        "source_revision": provenance.source_revision,
+        "license": provenance.license,
+        "task_authors": list(provenance.task_authors),
+        "validators": list(provenance.validators),
+        "contamination_cutoff": provenance.contamination_cutoff,
+        "publication_status": provenance.publication_status,
+        "calibration_status": provenance.calibration_status,
+    }
+    if (
+        provenance.source_type == "hand_authored_fixture"
+        and provenance.publication_status != "fixture"
+    ):
+        errors.append("hand-authored tasks may only have publication_status fixture")
+    if not provenance.task_authors:
+        errors.append("provenance requires at least one task author")
+    if provenance.source_type != "hand_authored_fixture":
+        missing = [
+            name
+            for name, value in (
+                ("source_url", provenance.source_url),
+                ("source_revision", provenance.source_revision),
+                ("license", provenance.license),
+            )
+            if not value
+        ]
+        if missing:
+            errors.append("external provenance is missing: " + ", ".join(missing))
+        if not provenance.validators:
+            errors.append("external provenance requires at least one validator")
+        if provenance.publication_status != "fixture" and not provenance.contamination_cutoff:
+            errors.append("external pilot/candidate tasks require a contamination cutoff")
+    if provenance.publication_status == "candidate" and provenance.calibration_status not in {
+        "calibrated",
+        "real_hardware",
+    }:
+        errors.append("publication candidates require calibrated or real-hardware evidence")
+    if provenance.publication_status == "pilot" and provenance.calibration_status == "uncalibrated":
+        warnings.append("pilot task is not simulator-calibrated")
 
 
 def _workload_scenario(path: Path | None) -> dict[str, Any]:
@@ -269,7 +372,13 @@ def _validate_baseline_replay(
     errors: list[str],
     details: dict[str, Any],
 ) -> None:
-    for phase in ("development", "final"):
+    replay_cases: list[tuple[str, str | None]] = [("development", None), ("final", None)]
+    if task.development is not None and task.development.fidelities:
+        replay_cases = [
+            ("development", name) for name in task.development.fidelities
+        ] + [("final", None)]
+    for phase, fidelity in replay_cases:
+        label = f"development[{fidelity}]" if fidelity is not None else phase
         try:
             result = evaluate_changes(
                 task,
@@ -277,22 +386,23 @@ def _validate_baseline_replay(
                 allowed_actions,
                 {},
                 phase=phase,
+                fidelity=fidelity,
             )
         except Exception as exc:  # noqa: BLE001 - validation must aggregate failures.
-            errors.append(f"{phase} baseline replay failed: {exc}")
+            errors.append(f"{label} baseline replay failed: {exc}")
             continue
-        details[f"{phase}_baseline_replay"] = {
+        details[f"{label}_baseline_replay"] = {
             "valid": result.valid,
             "ratio": result.ratio,
             "failures": result.failures,
         }
         if not result.valid:
-            errors.append(f"{phase} baseline replay is invalid: {result.failures}")
+            errors.append(f"{label} baseline replay is invalid: {result.failures}")
         if not math.isclose(result.ratio, 1.0, rel_tol=1e-9, abs_tol=1e-9):
-            errors.append(f"{phase} baseline replay ratio is {result.ratio}, expected 1.0")
+            errors.append(f"{label} baseline replay ratio is {result.ratio}, expected 1.0")
         mismatches = _metric_mismatches(result.agent_metrics, result.baseline_metrics)
         if mismatches:
-            errors.append(f"{phase} baseline replay mismatch: " + "; ".join(mismatches))
+            errors.append(f"{label} baseline replay mismatch: " + "; ".join(mismatches))
 
 
 def _mock_metrics_path(task: TaskSpec, phase: str) -> Path:
@@ -323,8 +433,12 @@ def _metric_mismatches(
     expected: dict[str, float],
 ) -> list[str]:
     mismatches: list[str] = []
-    for name in sorted(set(actual) | set(expected)):
-        if name not in actual or name not in expected:
+    # A baseline manifest may intentionally pin only publication-critical
+    # metrics while the runner emits additional diagnostics. Every declared
+    # value must replay exactly; extra runner diagnostics are retained in the
+    # result rather than making the task invalid when the evaluator evolves.
+    for name in sorted(expected):
+        if name not in actual:
             mismatches.append(f"{name} missing")
         elif not math.isclose(actual[name], expected[name], rel_tol=1e-9, abs_tol=1e-9):
             mismatches.append(f"{name}={actual[name]} expected {expected[name]}")

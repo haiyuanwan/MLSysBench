@@ -7,7 +7,7 @@ task validator.
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests -v`: 38 tests passed.
+- `python3 -m unittest discover -s tests -v`: 50 tests passed at the last update.
 - `python3 -m compileall -q mlsysbench tests`: passed.
 - Four canonical scenario fixtures validate without warnings: `prefill_heavy`,
   `decode_heavy`, `high_load`, and `balanced`. Their development/final mock
@@ -37,12 +37,14 @@ not complete portable reproduction bundles.
 | TPE and SMAC3 | Optional adapters | Default suite tests only missing-dependency behavior |
 | Vidur+AICB runner | Experimental | Local smoke and 32-request summaries |
 | Scenario-family metadata | Implemented | Required schema, objective/profile validation, public agent context, four fixtures |
+| Bounded scheduler-code protocol | Prototype implemented | Schema v2 source bundle, editable allowlist, clean starter reconstruction, deterministic hidden evaluator |
+| Patch/policy/multi-fidelity protocol | Fixture implemented | Schema-v3 provenance, multi-profile policy simulator, robust/worst/fairness metrics, cost-accounted fidelities |
 | Four-tier baseline ladder | Not implemented | Individual baselines/search exist, not tiered per task |
-| Run matrix and result aggregation | Not implemented | Per-run JSON and shell matrix only |
+| Run matrix and result aggregation | Partial | `aggregate-results` covers failures, bootstrap interval, transfer/process/cost metrics; declarative run-matrix execution remains pending |
 | Containerized final replay | Not implemented | Landlock/process separation only |
 | Starting-point ablations | Not implemented | No task/run dimension |
-| Simulator-to-hardware calibration | Not implemented | No ranking/error study |
-| Open server/code track | Not implemented | No patch, correctness, or quality gate |
+| Simulator-to-hardware calibration | Analysis implemented, evidence missing | `analyze-calibration` reports error, Spearman/Kendall, top-k, pairwise agreement and hardware CV; no real paired bundle yet |
+| Open server/code track | Partial protocol only | Synthetic patch/policy fixtures exist; no arbitrary upstream patch, model-quality gate, or real-hardware score |
 | Continuous integration | Not implemented | No CI workflow checked in |
 
 ## Ordered implementation roadmap
@@ -105,6 +107,8 @@ and identifies the score denominator explicitly.
 
 ### Stage 4: run matrix and aggregation
 
+**Status: aggregation implemented; declarative matrix execution pending.**
+
 Implement declarative execution over task, model, scaffold, starting point,
 budget, seed, and repeat.
 
@@ -150,6 +154,8 @@ Exit criteria: reports separate model capability, agent scaffold contribution,
 and prior configuration quality.
 
 ### Stage 7: simulator calibration
+
+**Status: analysis command implemented; real paired evidence absent.**
 
 Compare identical configurations in simulation and on hardware across scenario
 families, schedulers, profiles, sequence lengths, parallelism choices, and at
@@ -201,10 +207,11 @@ These items run throughout all stages instead of forming a separate stage:
 ## Current claim boundary
 
 Today the repository can claim that the synthetic scale-transfer protocol,
-agent/search interfaces, budgets, and clean replay logic execute as tested. It
+agent/search interfaces, budgets, bounded scheduler source submission, and
+clean replay logic execute as tested. It
 can also claim that the local Vidur+AICB backend has produced real summaries on
 one hardware class.
 
 It cannot yet claim calibrated simulator fidelity, model rankings, robust
-cross-scale generalization, production-grade isolation, or open-ended system
-optimization capability.
+cross-scale generalization, production-grade isolation, arbitrary patch
+security, or open-ended system optimization capability.

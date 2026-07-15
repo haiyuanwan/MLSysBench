@@ -54,6 +54,7 @@ def main():
     with open(args.submission, "r", encoding="utf-8") as handle:
         submission = json.load(handle)
     changes = submission.get("changes") if isinstance(submission, dict) else None
+    fidelity = submission.get("fidelity") if isinstance(submission, dict) else None
     if not isinstance(changes, dict):
         raise SystemExit("submission must contain a changes object")
 
@@ -68,7 +69,24 @@ def main():
     request_path = request_dir / (request_id + ".json")
     response_path = response_dir / (request_id + ".json")
     temporary_path = request_dir / (request_id + ".tmp")
-    request_payload = {"token": token, "operation": "evaluate", "changes": changes}
+    context = json.loads(pathlib.Path("task_context.json").read_text(encoding="utf-8"))
+    submission_spec = context.get("submission", {})
+    files = {}
+    if submission_spec.get("type") == "code":
+        solution_dir = pathlib.Path(submission_spec.get("workspace_dir", "solution"))
+        for relative_path in submission_spec.get("editable_files", []):
+            candidate_path = solution_dir / relative_path
+            if not candidate_path.is_file() or candidate_path.is_symlink():
+                raise SystemExit("missing editable solution file: " + relative_path)
+            files[relative_path] = candidate_path.read_text(encoding="utf-8")
+
+    request_payload = {
+        "token": token,
+        "operation": "evaluate",
+        "changes": changes,
+        "files": files,
+        "fidelity": fidelity,
+    }
     temporary_path.write_text(json.dumps(request_payload), encoding="utf-8")
     os.replace(temporary_path, request_path)
 
@@ -102,6 +120,10 @@ FINAL_SUBMISSION_SCHEMA: dict[str, Any] = {
     "required": ["changes"],
     "properties": {
         "changes": {"type": "object"},
+        "files": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
         "notes": {"type": "string"},
     },
     "additionalProperties": True,
@@ -181,17 +203,24 @@ def prepare_public_workspace(
     workspace.mkdir(parents=True, exist_ok=True)
     (workspace / ".tmp").mkdir()
 
+    task = TaskSpec.load(task_dir)
     context = build_agent_context(task_dir).to_dict()
     write_json(workspace / "task_context.json", context)
     write_json(
         workspace / "budget.json",
         {
             "development_queries": max_queries,
+            "development_cost_units": task.constraints.max_development_cost_units,
             "wall_time_seconds": wall_time_seconds,
             "final_submission": "final_submission.json",
         },
     )
     write_json(workspace / "final_submission.schema.json", FINAL_SUBMISSION_SCHEMA)
+
+    if task.submission.type == "code":
+        if task.submission.starter_dir is None:
+            raise ConfigError("code task is missing its starter directory")
+        shutil.copytree(task.submission.starter_dir, workspace / "solution")
 
     helper_path = workspace / "evaluate_dev.py"
     helper_path.write_text(PUBLIC_EVALUATOR_HELPER, encoding="utf-8")
@@ -312,7 +341,7 @@ def run_cli_agent(
             *(Path(path) for path in effective_read_paths),
         ]
         _validate_landlock_read_paths(task_dir, read_only_paths)
-        _validate_landlock_write_paths(task_dir, effective_read_write_paths)
+        _validate_private_write_paths(task_dir, effective_read_write_paths)
 
         def install_landlock() -> None:
             restrict_current_process(
@@ -325,6 +354,7 @@ def run_cli_agent(
 
         preexec_fn = install_landlock
     elif isolation == "bwrap":
+        _validate_private_write_paths(task_dir, effective_read_write_paths)
         effective_argv = _wrap_with_bwrap(
             argv,
             workspace,
@@ -433,6 +463,8 @@ def run_cli_agent(
             try:
                 submission = load_submission(str(workspace_submission))
                 normalized_submission: dict[str, Any] = {"changes": submission["changes"]}
+                if task.submission.type == "code":
+                    normalized_submission["files"] = _collect_solution_files(task, workspace)
                 if isinstance(submission.get("notes"), str):
                     normalized_submission["notes"] = submission["notes"]
                 write_json(normalized_submission_path, normalized_submission)
@@ -512,6 +544,8 @@ class _DevelopmentState:
         self.task = TaskSpec.load(task_dir)
         self.baseline_config = self.task.load_baseline_config()
         self.allowed_actions = self.task.load_allowed_actions()
+        self.cost_units_used = 0
+        self.fidelity_queries: dict[str, int] = {}
         _atomic_write_json(self.trajectory_path, self.trajectory)
 
     def status(self) -> dict[str, Any]:
@@ -519,6 +553,17 @@ class _DevelopmentState:
         return {
             "queries_used": used,
             "queries_remaining": max(0, self.max_queries - used),
+            "cost_units_used": self.cost_units_used,
+            "cost_units_remaining": (
+                max(
+                    0,
+                    self.task.constraints.max_development_cost_units
+                    - self.cost_units_used,
+                )
+                if self.task.constraints.max_development_cost_units is not None
+                else None
+            ),
+            "fidelity_queries": dict(sorted(self.fidelity_queries.items())),
             "seconds_remaining": round(
                 max(0.0, self.deadline_monotonic - time.monotonic()), 3
             ),
@@ -532,11 +577,54 @@ class _DevelopmentState:
 
         query_index = len(self.trajectory) + 1
         changes = payload.get("changes") if isinstance(payload, dict) else None
+        files = payload.get("files") if isinstance(payload, dict) else None
+        fidelity = payload.get("fidelity") if isinstance(payload, dict) else None
+        if fidelity is not None and not isinstance(fidelity, str):
+            return 400, {"ok": False, "error": "fidelity must be a string", **self.status()}
+        try:
+            fidelity_spec = self.task.development_fidelity(fidelity)
+        except ConfigError as exc:
+            return 400, {"ok": False, "error": str(exc), **self.status()}
+        fidelity_name = fidelity_spec.name if fidelity_spec is not None else None
+        query_cost = fidelity_spec.cost_units if fidelity_spec is not None else 1
+        if (
+            fidelity_spec is not None
+            and fidelity_spec.max_queries is not None
+            and self.fidelity_queries.get(fidelity_spec.name, 0) >= fidelity_spec.max_queries
+        ):
+            return 429, {
+                "ok": False,
+                "error": f"development fidelity {fidelity_spec.name!r} query budget exhausted",
+                **self.status(),
+            }
+        cost_budget = self.task.constraints.max_development_cost_units
+        if cost_budget is not None and self.cost_units_used + query_cost > cost_budget:
+            return 429, {
+                "ok": False,
+                "error": "development cost-unit budget exhausted",
+                "requested_cost_units": query_cost,
+                **self.status(),
+            }
         record: dict[str, Any] = {
             "query": query_index,
             "submitted_at": _utc_now(),
             "elapsed_seconds": None,
             "changes": changes if isinstance(changes, dict) else None,
+            "files": (
+                {
+                    name: hashlib.sha256(content.encode("utf-8")).hexdigest()
+                    for name, content in files.items()
+                }
+                if isinstance(files, dict)
+                and all(
+                    isinstance(name, str) and isinstance(content, str)
+                    for name, content in files.items()
+                )
+                else None
+            ),
+            "fidelity": fidelity_name,
+            "fidelity_kind": fidelity_spec.kind if fidelity_spec is not None else None,
+            "cost_units": query_cost,
             "evaluation": None,
             "error": None,
         }
@@ -551,6 +639,8 @@ class _DevelopmentState:
                 self.allowed_actions,
                 changes,
                 phase="development",
+                files=files,
+                fidelity=fidelity,
             )
             record["evaluation"] = evaluation.to_dict()
             response: dict[str, Any] = {
@@ -572,6 +662,9 @@ class _DevelopmentState:
                 "error": "development evaluator failed",
             }
         record["elapsed_seconds"] = round(time.monotonic() - started, 6)
+        self.cost_units_used += query_cost
+        if fidelity_name is not None:
+            self.fidelity_queries[fidelity_name] = self.fidelity_queries.get(fidelity_name, 0) + 1
         self.trajectory.append(record)
         _atomic_write_json(self.trajectory_path, self.trajectory)
         response.update(self.status())
@@ -713,7 +806,13 @@ def _process_development_request(
         return {"ok": True, "status_code": 200, **state.status()}
     if operation != "evaluate":
         return {"ok": False, "status_code": 404, "error": "unknown operation"}
-    status_code, response = state.evaluate({"changes": payload.get("changes")})
+    status_code, response = state.evaluate(
+        {
+            "changes": payload.get("changes"),
+            "files": payload.get("files"),
+            "fidelity": payload.get("fidelity"),
+        }
+    )
     response["status_code"] = status_code
     return response
 
@@ -737,6 +836,46 @@ def _build_mission(
     wall_time_seconds: int,
 ) -> str:
     objective = context["objective"]
+    if context.get("submission", {}).get("type") == "code":
+        editable = ", ".join(context["submission"]["editable_files"])
+        workflow = f"""The editable starter repository is in `solution/`. You may modify only: {editable}.
+
+For each useful experiment:
+
+1. Inspect the starter code and form one explicit systems hypothesis.
+2. Edit only the declared files under `solution/`.
+3. Put legal configuration changes in `candidate.json` as `{{"changes": {{...}}}}`.
+4. Run `python3 evaluate_dev.py candidate.json --output candidate_result.json`.
+5. Use the returned correctness and performance results to refine the implementation.
+
+The helper automatically evaluates the current editable files under `solution/`."""
+        final_instruction = (
+            "Do not put source text in final_submission.json; the harness collects "
+            "the current editable files from solution/."
+        )
+    else:
+        workflow = """For each useful experiment:
+
+1. Form one explicit systems hypothesis from prior measurements.
+2. Put only legal changed fields in a JSON file, for example `candidate.json` with `{{"changes": {{...}}}}`.
+3. Run `python3 evaluate_dev.py candidate.json --output candidate_result.json`.
+4. Compare against the baseline and best result, then retain or roll back the change.
+5. Avoid duplicate configurations and reserve enough time to validate the final choice."""
+        final_instruction = (
+            "The final configuration may differ from the best development configuration "
+            "when scale or workload transfer justifies it."
+        )
+
+    fidelity_instruction = ""
+    fidelities = context.get("development_fidelities", {})
+    if fidelities:
+        fidelity_instruction = (
+            "Each development request may include a `fidelity` field. Available fidelities "
+            "and their cost/query limits are recorded in task_context.json. Spend the "
+            "cost-unit budget deliberately; hardware_proxy is still simulated unless the "
+            "task provenance explicitly says real_hardware."
+        )
+
     return f"""# MLSysBench CLI Agent Mission
 
 Optimize task `{context['task_id']}` as an inference-systems engineer.
@@ -745,16 +884,30 @@ Primary objective: `{objective['direction']}` `{objective['primary_metric']}` wh
 
 You have {max_queries} development evaluator queries and {wall_time_seconds} seconds. Inspect `task_context.json` for the public task, baseline configuration, allowed actions, constraints, and metrics. The evaluator owns all non-public evaluation inputs.
 
-For each useful experiment:
+{workflow}
 
-1. Form one explicit systems hypothesis from prior measurements.
-2. Put only legal changed fields in a JSON file, for example `candidate.json` with `{{"changes": {{...}}}}`.
-3. Run `python3 evaluate_dev.py candidate.json --output candidate_result.json`.
-4. Compare against the baseline and best result, then retain or roll back the change.
-5. Avoid duplicate configurations and reserve enough time to validate the final choice.
+{fidelity_instruction}
 
-Before exiting, write exactly one `final_submission.json` matching `final_submission.schema.json`. It must contain a `changes` object and may contain `notes`. The final configuration may differ from the best development configuration when scale or workload transfer justifies it. Do not attempt to inspect files outside this workspace.
+Before exiting, write exactly one `final_submission.json` matching `final_submission.schema.json`. It must contain a `changes` object and may contain `notes`. {final_instruction} Do not attempt to inspect files outside this workspace.
 """
+
+
+def _collect_solution_files(task: TaskSpec, workspace: Path) -> dict[str, str]:
+    solution_dir = workspace / "solution"
+    files: dict[str, str] = {}
+    for relative_path in task.submission.editable_files:
+        candidate = solution_dir / relative_path
+        if not candidate.is_file() or candidate.is_symlink():
+            raise ConfigError(f"missing editable solution file: {relative_path}")
+        content = candidate.read_text(encoding="utf-8")
+        size = len(content.encode("utf-8"))
+        if size > task.submission.max_file_bytes:
+            raise ConfigError(
+                f"solution file {relative_path} is {size} bytes; maximum is "
+                f"{task.submission.max_file_bytes}"
+            )
+        files[relative_path] = content
+    return files
 
 
 def _expand_agent_command(
@@ -813,17 +966,21 @@ def _validate_landlock_read_paths(
             )
 
 
-def _validate_landlock_write_paths(
+def _validate_private_write_paths(
     task_dir: Path,
     read_write_paths: Sequence[str | Path],
 ) -> None:
     task_dir = task_dir.resolve()
     for value in read_write_paths:
         path = Path(value).expanduser().resolve()
-        overlaps = path == task_dir or path in task_dir.parents or task_dir in path.parents
+        overlaps = (
+            path == task_dir
+            or path in task_dir.parents
+            or task_dir in path.parents
+        )
         if overlaps:
             raise ConfigError(
-                f"Landlock read-write path overlaps the private task tree: {path}"
+                f"Agent read-write path overlaps the private task tree: {path}"
             )
 
 
@@ -845,9 +1002,9 @@ def _wrap_with_bwrap(
         str(task_dir),
         "--bind",
         str(workspace),
-        "/workspace",
+        str(workspace),
         "--chdir",
-        "/workspace",
+        str(workspace),
     ]
     for value in read_write_paths:
         path = str(Path(value).resolve())
@@ -930,6 +1087,12 @@ def _build_manifest(
     stderr_path: Path,
 ) -> dict[str, Any]:
     git_state = _git_state(task.task_dir)
+    development_trajectory = _load_json_list(output_dir / "development_trajectory.json")
+    development_cost_units_used = sum(
+        int(record.get("cost_units", 1))
+        for record in development_trajectory
+        if isinstance(record, dict)
+    )
     reported_stats = _load_json_object(workspace / "chat_agent_stats.json")
     task_file = task.task_dir / "task.json"
     if not task_file.exists():
@@ -938,6 +1101,20 @@ def _build_manifest(
         "schema_version": 1,
         "task_id": task.task_id,
         "track": task.track,
+        "task_provenance": (
+            {
+                "source_type": task.provenance.source_type,
+                "source_url": task.provenance.source_url,
+                "source_revision": task.provenance.source_revision,
+                "license": task.provenance.license,
+                "contamination_cutoff": task.provenance.contamination_cutoff,
+                "publication_status": task.provenance.publication_status,
+                "calibration_status": task.provenance.calibration_status,
+                "validators": list(task.provenance.validators),
+            }
+            if task.provenance is not None
+            else None
+        ),
         "status": status,
         "started_at": started_at,
         "completed_at": completed_at,
@@ -946,6 +1123,8 @@ def _build_manifest(
             "wall_time_seconds": wall_time_seconds,
             "development_queries": query_budget,
             "development_queries_used": queries_used,
+            "development_cost_units": task.constraints.max_development_cost_units,
+            "development_cost_units_used": development_cost_units_used,
         },
         "agent": {
             "scaffold": agent_scaffold,

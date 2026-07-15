@@ -3,16 +3,16 @@
 ## Positioning
 
 MLSysBench evaluates whether AI agents can conduct disciplined
-inference-systems experiments and transfer conclusions beyond the
-configurations and scales they directly evaluate. Its main artifact is a
-measured system configuration today and, later, a reproducible system patch.
+inference-systems experiments and transfer conclusions beyond the workloads,
+models, hardware, and scales they directly evaluate. Artifacts may be measured
+configurations, bounded online policies, or reproducible system patches.
 
 The benchmark is complementary to
 [InferenceBench](https://github.com/aisa-group/InferenceBench): InferenceBench
 tests open-ended optimization of a real single-H100 inference server;
-MLSysBench uses controlled simulation and real anchor runs to test workload,
-hardware, and cluster-scale transfer that would be too expensive to explore
-directly.
+MLSysBench uses controlled simulation and real anchor runs to test transfer and
+the allocation of experiment budget between cheap biased feedback and scarce
+real measurements.
 
 The benchmark targets four questions:
 
@@ -24,6 +24,8 @@ The benchmark targets four questions:
    shifted final deployment?
 4. Does cheaper experimentation improve discipline, or merely enable more
    repeated and uncontrolled trials?
+5. Can an agent choose informative high-fidelity probes and correct a biased
+   simulator more effectively than matched multi-fidelity search?
 
 Negative results are meaningful. Search dominating agents exposes an
 experiment-management gap; agents helping primarily under distribution shift
@@ -47,16 +49,27 @@ reward higher tensor parallelism while constrained-network shifts penalize it.
 Otherwise models can learn one benchmark shortcut without interpreting
 feedback.
 
-The target task metadata is:
+Schema-v3 publication-oriented task metadata additionally records provenance:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
+  "track": "policy_transfer",
   "scenario": {
     "family": "high_load",
     "transfer": "scale_up",
     "starting_point": "framework_default",
     "profiles": ["burst", "poisson", "constant"]
+  },
+  "provenance": {
+    "source_type": "upstream_pr",
+    "source_url": "https://github.com/ORG/REPO/pull/NUMBER",
+    "source_revision": "PARENT_COMMIT_SHA",
+    "license": "Apache-2.0",
+    "task_authors": ["curator"],
+    "validators": ["upstream maintainer"],
+    "publication_status": "pilot",
+    "calibration_status": "partially_calibrated"
   }
 }
 ```
@@ -93,6 +106,38 @@ not just copying a public optimum.
 Files under `hidden/` are local fixtures, not secrecy by themselves. Production
 secrecy comes from a dedicated evaluation boundary that never mounts private
 inputs into the agent workspace.
+
+## Multi-fidelity development
+
+A task may expose named development fidelities. Each declares a semantic
+`kind` (`simulator`, `hardware_proxy`, or `real_hardware`), positive cost, and
+optional query cap. All calls share `constraints.max_development_cost_units`.
+The agent selects a fidelity on each development request; final evaluation does
+not accept a fidelity selector.
+
+`hardware_proxy` means a deliberately different simulator surface used to test
+budget accounting and calibration behavior. It is never evidence of a physical
+measurement. Manifests record fidelity names, kinds, costs, and counts.
+
+Final workloads may contain multiple evaluator-owned cases. The built-in
+policy fixture reports geometric-mean robust goodput, worst-profile goodput,
+request SLO pass rate, tenant fairness, maximum tail latencies, and all raw
+per-profile values. A zero-goodput profile remains zero and cannot be hidden by
+aggregation.
+
+## Provenance and evidence status
+
+Schema-v3 tasks declare their source, revision, license, curators, validators,
+contamination cutoff, publication status, and calibration status. Validation
+enforces these rules:
+
+- a hand-authored task can only be a `fixture`;
+- an externally sourced task needs URL, revision, license, and a validator;
+- a publication `candidate` cannot be `uncalibrated` or `proxy_only`.
+
+The complete intake procedure, trace requirements, blind-task protocol, and
+promotion checklist are in
+[Task intake and publication gates](task-intake-and-publication-gates.md).
 
 ## Baseline ladder
 
@@ -228,13 +273,18 @@ The gate order is:
 
 ```text
 schema -> immutable/resource -> runner/reachability -> correctness
-       -> model quality -> SLO -> integrity -> performance score
+       -> model quality -> SLO/custom metric gates -> integrity -> performance score
 ```
 
 Configuration-only tasks with fixed model weights may mark correctness and
 quality as not applicable. Any track that changes quantization, weights,
 framework behavior, kernels, or scheduler code must define them. Quality floors
 are baseline-relative and evaluated on final-only samples.
+
+`metric_gates` provides deterministic minimum or maximum thresholds for
+runner-emitted metrics that are not latency SLO fields. The policy-transfer
+fixture uses it to require both request SLO pass rate and Jain tenant fairness,
+so aggregate goodput cannot compensate for starving one tenant.
 
 The current per-task score is capped and baseline-relative:
 
@@ -281,7 +331,9 @@ reasoning.
 
 Agents receive a slow but valid system and measured symptoms, then repair it.
 Scoring uses measured behavior rather than textual root-cause matching. This
-track is designed but has no publication-ready task.
+track now has a schema-v2 workload-aware scheduler fixture using a synthetic
+deterministic timing model; it is not yet a publication-ready Vidur or hardware
+task.
 
 ### Scale and workload transfer
 
@@ -295,6 +347,11 @@ does the benchmark admit open framework selection, server launchers, scheduler
 patches, routing, memory policy, kernels, or quantization. Final artifacts must
 relaunch in a clean container and pass correctness, quality, integrity, and
 performance gates.
+
+The current bounded scheduler fixture is intentionally narrower than this open
+track: it permits one allowlisted Python file behind a JSON decision interface.
+It validates artifact handling and hidden workload replay, not arbitrary
+framework modification.
 
 ## Ordered implementation plan
 

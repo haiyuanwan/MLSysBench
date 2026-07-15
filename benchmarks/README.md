@@ -29,6 +29,14 @@ Harness and methodology experiments:
 
 Single-run and synthetic files must not be presented as model rankings.
 
+## `calibration/`
+
+The directory contains the paired-measurement input format for
+`analyze-calibration`. The checked-in example is synthetic schema
+documentation, not simulator-fidelity evidence. Real bundles must retain
+hardware repeats and artifact hashes and report error, rank correlation, top-k
+overlap, pairwise decision agreement, and measurement variance.
+
 ## Admission rules
 
 A checked-in result summary should include:

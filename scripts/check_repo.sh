@@ -16,6 +16,14 @@ python3 -m mlsysbench.simai_bench validate-task \
 python3 -m mlsysbench.simai_bench validate-task \
   --task tasks/scenarios/mock_balanced >/dev/null
 python3 -m mlsysbench.simai_bench validate-task \
+  --task tasks/code_scheduler/workload_aware_chunked_prefill >/dev/null
+python3 -m mlsysbench.simai_bench validate-task \
+  --task tasks/patch_transfer/adaptive_chunk_patch >/dev/null
+python3 -m mlsysbench.simai_bench validate-task \
+  --task tasks/policy_transfer/nonstationary_fair_scheduler >/dev/null
+python3 -m mlsysbench.simai_bench validate-task \
+  --task tasks/multifidelity/scheduler_probe_allocation >/dev/null
+python3 -m mlsysbench.simai_bench validate-task \
   --task tasks/simai_gym/qwen3_next_aicb_smoke >/dev/null
 python3 -m mlsysbench.simai_bench validate-task \
   --task tasks/simai_gym/qwen3_next_aicb_benchmark >/dev/null

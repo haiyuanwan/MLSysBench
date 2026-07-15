@@ -1,0 +1,20 @@
+{
+  "scenario_family": "balanced",
+  "profiles": ["mixed_prompt_output"],
+  "seed": 5107,
+  "cases": [{
+    "name": "cheap_simulator",
+    "timing_model": {"prefill_quadratic_ms": 0.000008, "decode_per_request_ms": 0.045, "mixed_interference_ms": 0.00035},
+    "limits": {"max_batch_tokens": 384, "max_batch_size": 10, "ttft_slo_ms": 90, "tbt_slo_ms": 5, "e2e_slo_ms": 220},
+    "requests": [
+      {"arrived_at_ms": 0, "prompt_tokens": 512, "output_tokens": 8},
+      {"arrived_at_ms": 3, "prompt_tokens": 24, "output_tokens": 26},
+      {"arrived_at_ms": 6, "prompt_tokens": 160, "output_tokens": 12},
+      {"arrived_at_ms": 9, "prompt_tokens": 40, "output_tokens": 22},
+      {"arrived_at_ms": 12, "prompt_tokens": 640, "output_tokens": 7},
+      {"arrived_at_ms": 15, "prompt_tokens": 32, "output_tokens": 24},
+      {"arrived_at_ms": 18, "prompt_tokens": 256, "output_tokens": 10},
+      {"arrived_at_ms": 21, "prompt_tokens": 48, "output_tokens": 18}
+    ]
+  }]
+}

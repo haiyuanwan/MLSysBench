@@ -1,0 +1,49 @@
+{
+  "scenario_family": "high_load",
+  "profiles": ["burst", "poisson", "constant"],
+  "seed": 8129,
+  "cases": [
+    {
+      "name": "hidden_burst",
+      "limits": {"max_batch_tokens": 256, "max_batch_size": 8, "ttft_slo_ms": 100, "tbt_slo_ms": 5, "e2e_slo_ms": 230},
+      "requests": [
+        {"arrived_at_ms": 0, "prompt_tokens": 896, "output_tokens": 8, "tenant": "bulk", "priority": 0},
+        {"arrived_at_ms": 0, "prompt_tokens": 20, "output_tokens": 30, "tenant": "interactive", "priority": 2},
+        {"arrived_at_ms": 0, "prompt_tokens": 36, "output_tokens": 24, "tenant": "interactive", "priority": 2},
+        {"arrived_at_ms": 1, "prompt_tokens": 128, "output_tokens": 14, "tenant": "standard", "priority": 1},
+        {"arrived_at_ms": 1, "prompt_tokens": 28, "output_tokens": 26, "tenant": "standard", "priority": 1},
+        {"arrived_at_ms": 2, "prompt_tokens": 448, "output_tokens": 10, "tenant": "bulk", "priority": 0},
+        {"arrived_at_ms": 2, "prompt_tokens": 44, "output_tokens": 20, "tenant": "interactive", "priority": 2},
+        {"arrived_at_ms": 3, "prompt_tokens": 72, "output_tokens": 18, "tenant": "standard", "priority": 1}
+      ]
+    },
+    {
+      "name": "hidden_constant",
+      "limits": {"max_batch_tokens": 384, "max_batch_size": 10, "ttft_slo_ms": 120, "tbt_slo_ms": 6, "e2e_slo_ms": 280},
+      "requests": [
+        {"arrived_at_ms": 0, "prompt_tokens": 512, "output_tokens": 9, "tenant": "a", "priority": 0},
+        {"arrived_at_ms": 5, "prompt_tokens": 32, "output_tokens": 24, "tenant": "b", "priority": 1},
+        {"arrived_at_ms": 10, "prompt_tokens": 256, "output_tokens": 12, "tenant": "a", "priority": 0},
+        {"arrived_at_ms": 15, "prompt_tokens": 48, "output_tokens": 20, "tenant": "b", "priority": 1},
+        {"arrived_at_ms": 20, "prompt_tokens": 640, "output_tokens": 7, "tenant": "a", "priority": 0},
+        {"arrived_at_ms": 25, "prompt_tokens": 24, "output_tokens": 28, "tenant": "b", "priority": 2},
+        {"arrived_at_ms": 30, "prompt_tokens": 192, "output_tokens": 14, "tenant": "a", "priority": 0},
+        {"arrived_at_ms": 35, "prompt_tokens": 40, "output_tokens": 22, "tenant": "b", "priority": 1}
+      ]
+    },
+    {
+      "name": "hidden_poisson_shift",
+      "limits": {"max_batch_tokens": 256, "max_batch_size": 8, "ttft_slo_ms": 90, "tbt_slo_ms": 5, "e2e_slo_ms": 220},
+      "requests": [
+        {"arrived_at_ms": 0, "prompt_tokens": 384, "output_tokens": 10, "tenant": "x", "priority": 0},
+        {"arrived_at_ms": 1, "prompt_tokens": 28, "output_tokens": 26, "tenant": "y", "priority": 2},
+        {"arrived_at_ms": 6, "prompt_tokens": 96, "output_tokens": 16, "tenant": "x", "priority": 1},
+        {"arrived_at_ms": 8, "prompt_tokens": 576, "output_tokens": 8, "tenant": "y", "priority": 0},
+        {"arrived_at_ms": 17, "prompt_tokens": 36, "output_tokens": 22, "tenant": "x", "priority": 2},
+        {"arrived_at_ms": 19, "prompt_tokens": 160, "output_tokens": 13, "tenant": "y", "priority": 1},
+        {"arrived_at_ms": 33, "prompt_tokens": 48, "output_tokens": 18, "tenant": "x", "priority": 1},
+        {"arrived_at_ms": 34, "prompt_tokens": 320, "output_tokens": 11, "tenant": "y", "priority": 0}
+      ]
+    }
+  ]
+}

@@ -2,10 +2,11 @@
 
 ## Scope
 
-MLSysBench currently evaluates configuration diffs against task-owned
-workloads and metrics. The implementation supports mock performance surfaces
-for protocol testing and Vidur+AICB for experimental real-backend runs. It does
-not yet evaluate arbitrary source-code patches.
+MLSysBench evaluates configuration diffs and one bounded source-bundle format
+against task-owned workloads and metrics. The implementation supports mock
+performance surfaces, Vidur+AICB experimental runs, and a deterministic
+scheduler-code protocol fixture. It does not yet evaluate arbitrary server,
+kernel, or framework patches.
 
 ## Data flow
 
@@ -18,7 +19,7 @@ task.json + baseline_config + allowed_actions
 submission.changes -> validate -> merge -> hidden overrides -> resource gate
                                                         |
                                                         v
-                                              mock or Vidur runner
+                                      mock, Vidur, or Python-code runner
                                                         |
                                                         v
                                               normalized metrics
@@ -31,6 +32,20 @@ Development evaluation uses the task's `development` specification when one is
 present. Final evaluation always uses `hidden`. CLI-agent runs stop the public
 development service before executing one clean final replay.
 
+For a schema-v2 or schema-v3 code task, the public starter is copied to `solution/` and only
+declared editable files are bundled with each query. The Python-code runner
+reconstructs a fresh temporary starter, overlays those files, and invokes a
+trusted task evaluator. The scheduler fixture runs candidate decisions through
+a JSON-lines adapter so candidate code never receives the hidden workload file.
+
+Schema-v3 tasks add machine-readable source provenance and evidence status.
+Their development phase may expose named fidelities with different
+`cost_units`, per-fidelity query limits, and one shared cost budget. The final
+phase never accepts a fidelity selector. The built-in scheduler-policy
+evaluator supports multiple workload cases and reports robust/worst-profile
+goodput, SLO pass rate, tenant fairness, and per-profile diagnostics; it remains
+a deterministic proxy until a calibration bundle establishes decision fidelity.
+
 ## Module ownership
 
 | Module | Responsibility |
@@ -38,7 +53,7 @@ development service before executing one clean final replay.
 | `schema.py` | Parse scenario, objective, SLO, runner, development, hidden, and constraint fields |
 | `actions.py` | Validate submission diffs and merge them with the baseline |
 | `evaluator.py` | Coordinate phase selection, workload overrides, runner execution, and scoring |
-| `runner.py` | Dispatch mock and Vidur backends; detect AICB fallback/default behavior |
+| `runner.py` | Dispatch mock, Vidur, and bounded Python-code backends; detect AICB fallback/default behavior |
 | `metrics.py` | Parse request metrics and calculate TTFT/TBT goodput |
 | `scoring.py` | Apply validity/SLO gates and baseline-relative scoring |
 | `task_validation.py` | Check scenario consistency, mock-surface completeness, phase separation, and baseline replay |
@@ -63,6 +78,7 @@ task-name/
     baseline_metrics.json
     dev_workload.json
     mock_metrics.json
+    starter/               code tasks only; copied into the agent workspace
   hidden/
     baseline_metrics.json
     eval_workload.json
@@ -79,13 +95,17 @@ a known portability issue, not a recommended task-authoring pattern.
 The one-shot and multi-step API agents receive serialized public context from
 the harness. A filesystem-capable CLI agent instead receives a generated
 workspace containing only the mission, task context, budget metadata, final
-submission schema, and a development evaluator helper.
+submission schema, development evaluator helper, and any declared public
+starter source.
 
 On Linux, Landlock denies repository reads and limits writes to the public
 workspace. The development evaluator remains in a separate process and owns
 private task files. This protects accidental filesystem access, but it does
 not provide complete process, syscall, or network isolation. Benchmark-grade
 runs should use a dedicated container or worker in addition to Landlock.
+The scheduler fixture prefers bubblewrap for its candidate subprocess and uses
+Landlock only as a filesystem-isolation fallback for restricted development
+hosts; that fallback does not provide network namespace isolation.
 
 ## Search-space semantics
 

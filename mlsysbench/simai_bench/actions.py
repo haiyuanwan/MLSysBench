@@ -22,6 +22,12 @@ def load_submission(path: str) -> dict[str, Any]:
     changes = data.get("changes")
     if not isinstance(changes, dict):
         raise ConfigError("submission must include a changes object")
+    files = data.get("files")
+    if files is not None and (
+        not isinstance(files, dict)
+        or not all(isinstance(name, str) and isinstance(content, str) for name, content in files.items())
+    ):
+        raise ConfigError("submission.files must map relative file paths to UTF-8 text")
     return data
 
 
@@ -93,4 +99,3 @@ def _coerce_value(key: str, value: Any, action_type: str) -> Any:
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"Action {key} must be {action_type}, got {value!r}") from exc
     raise ConfigError(f"Unsupported action type {action_type!r}")
-
