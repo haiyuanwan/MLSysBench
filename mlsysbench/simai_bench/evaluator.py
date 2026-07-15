@@ -25,6 +25,7 @@ class EvaluationResult:
     agent_metrics: dict[str, float]
     failures: list[str]
     merged_config: dict[str, Any]
+    gpu_units: int
     runner_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,11 +38,26 @@ def evaluate_submission(task_dir: str | Path, submission_path: str | Path) -> Ev
     allowed_actions = task.load_allowed_actions()
     submission = load_submission(str(submission_path))
     changes = validate_changes(submission["changes"], allowed_actions)
-    merged_config = merge_config(baseline_config, changes)
+    return evaluate_changes(task, baseline_config, allowed_actions, changes)
 
+
+def evaluate_changes(
+    task: TaskSpec,
+    baseline_config: dict[str, Any],
+    allowed_actions: dict[str, Any],
+    changes: dict[str, Any],
+    phase: str = "final",
+) -> EvaluationResult:
+    if phase not in {"development", "final"}:
+        raise ValueError("phase must be development or final")
+    changes = validate_changes(changes, allowed_actions)
+    merged_config = merge_config(baseline_config, changes)
+    merged_config.update(task.load_eval_config_overrides(phase))
+    gpu_units = task.validate_constraints(changes, merged_config, phase)
+
+    baseline_metrics = task.load_baseline_metrics(phase)
     runner = make_runner(task)
-    run_result = runner.run(task, merged_config, changes)
-    baseline_metrics = task.load_baseline_metrics()
+    run_result = runner.run(task, merged_config, changes, phase)
     score = score_metrics(
         baseline_metrics=baseline_metrics,
         agent_metrics=run_result.metrics,
@@ -61,6 +77,7 @@ def evaluate_submission(task_dir: str | Path, submission_path: str | Path) -> Ev
         agent_metrics=run_result.metrics,
         failures=score.failures,
         merged_config=merged_config,
+        gpu_units=gpu_units,
         runner_error=run_result.error,
     )
 
@@ -69,8 +86,18 @@ def evaluate_and_write(
     task_dir: str | Path,
     submission_path: str | Path,
     output_path: str | Path,
+    phase: str = "final",
 ) -> EvaluationResult:
-    result = evaluate_submission(task_dir, submission_path)
+    task = TaskSpec.load(task_dir)
+    baseline_config = task.load_baseline_config()
+    allowed_actions = task.load_allowed_actions()
+    submission = load_submission(str(submission_path))
+    result = evaluate_changes(
+        task,
+        baseline_config,
+        allowed_actions,
+        submission["changes"],
+        phase=phase,
+    )
     write_json(output_path, result.to_dict())
     return result
-

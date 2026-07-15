@@ -1,0 +1,85 @@
+{
+  "benchmark": "longcat_initial_agent_protocol_validation",
+  "date": "2026-07-15",
+  "model": "meituan-longcat/LongCat-2.0",
+  "provider": "SiliconFlow OpenAI-compatible chat completions",
+  "generation": {
+    "temperature": 0.0,
+    "json_mode": false,
+    "max_tokens": 131072,
+    "max_tokens_provenance": "SiliconFlow rejected 1000000 and reported 131072 as the maximum allowed completion length."
+  },
+  "results": [
+    {
+      "task": "tasks/scale_up/mock_scale_transfer",
+      "synthetic": true,
+      "step_budget": 1,
+      "steps_used": 1,
+      "best_development_ratio": 1.34,
+      "hidden_final_ratio": 1.875,
+      "final_changes": {
+        "replica_config_tensor_parallel_size": 4,
+        "replica_scheduler_config_type": "sarathi",
+        "sarathi_scheduler_config_chunk_size": 1024
+      },
+      "model_stats": {
+        "api_calls": 1,
+        "latency_seconds": 30.120573,
+        "prompt_tokens": 807,
+        "completion_tokens": 1284,
+        "total_tokens": 2091
+      }
+    },
+    {
+      "task": "tasks/scale_up/mock_scale_transfer",
+      "synthetic": true,
+      "step_budget": 5,
+      "steps_used": 5,
+      "best_development_ratio": 1.6,
+      "hidden_final_ratio": 1.3125,
+      "final_changes": {
+        "replica_config_tensor_parallel_size": 2,
+        "replica_scheduler_config_type": "sarathi",
+        "sarathi_scheduler_config_chunk_size": 512
+      },
+      "model_stats": {
+        "api_calls": 5,
+        "latency_seconds": 102.530613,
+        "prompt_tokens": 9316,
+        "completion_tokens": 5165,
+        "total_tokens": 14481
+      }
+    },
+    {
+      "task": "tasks/simai_gym/qwen3_next_aicb_benchmark",
+      "synthetic": false,
+      "step_budget": 2,
+      "steps_used": 2,
+      "best_development_ratio": 1.0010642564337175,
+      "hidden_final_ratio": 1.0010642564337175,
+      "final_changes": {
+        "cluster_config_num_replicas": 16,
+        "replica_config_tensor_parallel_size": 2,
+        "replica_scheduler_config_type": "sarathi"
+      },
+      "model_stats": {
+        "api_calls": 2,
+        "latency_seconds": 106.093429,
+        "prompt_tokens": 3749,
+        "completion_tokens": 4979,
+        "total_tokens": 8728
+      },
+      "notes": "The second TP=4 experiment failed because the expected AICB CSV was not created; the agent retained and submitted its valid TP=2 configuration."
+    }
+  ],
+  "findings": [
+    "On the constructed scale-transfer surface, a one-step transfer decision outperformed the five-step public-development search on the hidden scale.",
+    "The five-step run converged to the public optimum and transferred worse, illustrating possible development-workload overfitting rather than a general model capability result.",
+    "The real AICB run improved measured goodput by only 0.106 percent, and the result is not suitable for model-ranking claims while TP communication remains unmodeled."
+  ],
+  "warnings": [
+    "The mock scale-transfer surface is manually constructed and cannot support language-model capability claims.",
+    "The real task is an integration result, not simulator-to-hardware validation.",
+    "AICB TP collective communication is not modeled in the current backend."
+  ]
+}

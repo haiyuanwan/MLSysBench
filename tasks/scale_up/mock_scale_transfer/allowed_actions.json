@@ -1,15 +1,14 @@
 {
-  "cluster_config_num_replicas": {
-    "type": "int",
-    "min": 1,
-    "max": 64
-  },
   "replica_config_tensor_parallel_size": {
     "type": "int",
-    "choices": [1, 2, 4, 8]
+    "choices": [1, 2, 4]
   },
   "replica_scheduler_config_type": {
     "type": "str",
     "choices": ["vllm", "sarathi"]
+  },
+  "sarathi_scheduler_config_chunk_size": {
+    "type": "int",
+    "choices": [256, 512, 1024]
   }
 }

@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -25,7 +26,13 @@ class RunResult:
 
 
 class Runner(Protocol):
-    def run(self, task: TaskSpec, config: dict[str, Any], changes: dict[str, Any]) -> RunResult:
+    def run(
+        self,
+        task: TaskSpec,
+        config: dict[str, Any],
+        changes: dict[str, Any],
+        phase: str = "final",
+    ) -> RunResult:
         ...
 
 
@@ -44,8 +51,17 @@ class MockRunner:
     This lets task authors unit-test scoring without a full SimAI build.
     """
 
-    def run(self, task: TaskSpec, config: dict[str, Any], changes: dict[str, Any]) -> RunResult:
-        metrics_path = task.runner.config.get("mock_metrics")
+    def run(
+        self,
+        task: TaskSpec,
+        config: dict[str, Any],
+        changes: dict[str, Any],
+        phase: str = "final",
+    ) -> RunResult:
+        metrics_key = "mock_metrics_development" if phase == "development" else "mock_metrics"
+        metrics_path = task.runner.config.get(metrics_key)
+        if metrics_path is None and phase == "development":
+            metrics_path = task.runner.config.get("mock_metrics")
         if not metrics_path:
             raise ConfigError("mock runner requires runner.mock_metrics")
         metrics_file = resolve_task_path(task.task_dir, metrics_path)
@@ -74,15 +90,23 @@ class MockRunner:
 
 
 class VidurRunner:
-    def run(self, task: TaskSpec, config: dict[str, Any], changes: dict[str, Any]) -> RunResult:
+    def run(
+        self,
+        task: TaskSpec,
+        config: dict[str, Any],
+        changes: dict[str, Any],
+        phase: str = "final",
+    ) -> RunResult:
         vidur_root = _resolve_runner_path(
             task,
             task.runner.config.get("vidur_root", "third_party/SimAI/vidur-alibabacloud"),
         )
-        output_dir = (
+        output_root = (
             _resolve_runner_path(task, task.runner.config.get("output_dir", "runs/simai_bench"))
             / task.task_id
+            / phase
         )
+        output_dir = output_root / uuid.uuid4().hex[:12]
         output_dir.mkdir(parents=True, exist_ok=True)
 
         run_config = dict(config)

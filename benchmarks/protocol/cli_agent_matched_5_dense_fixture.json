@@ -1,0 +1,117 @@
+{
+  "date": "2026-07-15",
+  "protocol": {
+    "development_queries": 5,
+    "wall_time_seconds": 900,
+    "isolation": "landlock",
+    "model_max_output_tokens": 131072,
+    "task": "scale_up_mock_scheduler_transfer",
+    "development_seed": 11,
+    "final_seed": 97,
+    "development_workload_sha256": "8c515e1cf2e466f988ef41767f4c39a5dfe71b10cc94058fbeb9921cffd80b5a",
+    "development_surface_sha256": "c7d37e073fe5e61cbfce28693cb432169b294898524b69a7f59b1df482e077a4",
+    "final_workload_sha256": "6f19059019c995d237cca23f4c3eede6e4814962a9d26dff9cece26a4fc5075c",
+    "final_surface_sha256": "addf3e866ffadda4dd5f8d84388d9f09b710257fd00a7b6fbdd7541f2a802117"
+  },
+  "caveat": "One run per language model on a synthetic protocol fixture. Search methods use 20 seeds except Grid. These data test the harness and generate hypotheses; they do not establish model rankings.",
+  "models": [
+    {
+      "model": "meituan-longcat/LongCat-2.0",
+      "context_window": 1048576,
+      "elapsed_seconds": 83.322158,
+      "api_calls": 15,
+      "total_tokens": 76609,
+      "best_development_ratio": 1.6,
+      "final_ratio": 1.3125,
+      "final_changes": {
+        "replica_config_tensor_parallel_size": 2,
+        "replica_scheduler_config_type": "sarathi",
+        "sarathi_scheduler_config_chunk_size": 512
+      }
+    },
+    {
+      "model": "zai-org/GLM-5.2",
+      "context_window": 1000000,
+      "elapsed_seconds": 653.611922,
+      "api_calls": 17,
+      "total_tokens": 313369,
+      "best_development_ratio": 1.6,
+      "final_ratio": 1.46875,
+      "final_changes": {
+        "replica_config_tensor_parallel_size": 2,
+        "replica_scheduler_config_type": "sarathi",
+        "sarathi_scheduler_config_chunk_size": 1024
+      }
+    },
+    {
+      "model": "moonshotai/Kimi-K2.7-Code",
+      "context_window": 262144,
+      "elapsed_seconds": 48.417899,
+      "api_calls": 15,
+      "total_tokens": 64696,
+      "best_development_ratio": 1.34,
+      "final_ratio": 1.875,
+      "final_changes": {
+        "replica_config_tensor_parallel_size": 4,
+        "replica_scheduler_config_type": "sarathi",
+        "sarathi_scheduler_config_chunk_size": 1024
+      }
+    },
+    {
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "context_window": 1000000,
+      "elapsed_seconds": 151.939502,
+      "api_calls": 18,
+      "total_tokens": 113906,
+      "best_development_ratio": 1.6,
+      "final_ratio": 1.3125,
+      "final_changes": {
+        "replica_config_tensor_parallel_size": 2,
+        "replica_scheduler_config_type": "sarathi",
+        "sarathi_scheduler_config_chunk_size": 512
+      }
+    }
+  ],
+  "search_baselines": [
+    {
+      "method": "grid",
+      "seeds": 1,
+      "best_development_ratio": 1.24,
+      "mean_final_ratio": 1.09375
+    },
+    {
+      "method": "random",
+      "seeds": 20,
+      "mean_final_ratio": 1.428125,
+      "median_final_ratio": 1.3125,
+      "min_final_ratio": 1.1875,
+      "max_final_ratio": 1.875
+    },
+    {
+      "method": "optuna_tpe_4_9_0",
+      "seeds": 20,
+      "mean_best_development_ratio": 1.434,
+      "mean_final_ratio": 1.4625,
+      "median_final_ratio": 1.46875,
+      "min_final_ratio": 1.1875,
+      "max_final_ratio": 1.875
+    },
+    {
+      "method": "smac_2_4_0",
+      "seeds": 20,
+      "mean_best_development_ratio": 1.481,
+      "mean_final_ratio": 1.446875,
+      "median_final_ratio": 1.3125,
+      "min_final_ratio": 1.1875,
+      "max_final_ratio": 1.875
+    }
+  ],
+  "observations": [
+    "Kimi selected the hidden-optimal TP4 configuration despite measuring only 1.34x development performance.",
+    "GLM partially extrapolated by increasing the Sarathi chunk size but retained TP2, producing 1.46875x final performance.",
+    "LongCat and DeepSeek submitted the measured public optimum and produced 1.3125x final performance.",
+    "The best development score did not predict the best final score, which is the intended scale-transfer distinction.",
+    "Kimi was fastest and used the fewest tokens in this single run; GLM approached the wall-time budget and used the most tokens.",
+    "Random, TPE, and SMAC final means were close at five queries, so repeated tasks and larger search spaces are required."
+  ]
+}

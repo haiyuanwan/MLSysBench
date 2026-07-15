@@ -1,0 +1,56 @@
+{
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":256}": {
+    "metrics": {"goodput_rps": 50.0, "p99_ttft_ms": 740.0, "p99_tbt_ms": 70.0, "throughput_rps": 55.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":512}": {
+    "metrics": {"goodput_rps": 50.0, "p99_ttft_ms": 740.0, "p99_tbt_ms": 70.0, "throughput_rps": 55.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":1024}": {
+    "metrics": {"goodput_rps": 50.0, "p99_ttft_ms": 740.0, "p99_tbt_ms": 70.0, "throughput_rps": 55.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":256}": {
+    "metrics": {"goodput_rps": 58.0, "p99_ttft_ms": 700.0, "p99_tbt_ms": 68.0, "throughput_rps": 63.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":512}": {
+    "metrics": {"goodput_rps": 62.0, "p99_ttft_ms": 680.0, "p99_tbt_ms": 65.0, "throughput_rps": 67.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":1024}": {
+    "metrics": {"goodput_rps": 55.0, "p99_ttft_ms": 760.0, "p99_tbt_ms": 75.0, "throughput_rps": 62.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":256}": {
+    "metrics": {"goodput_rps": 64.0, "p99_ttft_ms": 700.0, "p99_tbt_ms": 66.0, "throughput_rps": 70.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":512}": {
+    "metrics": {"goodput_rps": 64.0, "p99_ttft_ms": 700.0, "p99_tbt_ms": 66.0, "throughput_rps": 70.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":1024}": {
+    "metrics": {"goodput_rps": 64.0, "p99_ttft_ms": 700.0, "p99_tbt_ms": 66.0, "throughput_rps": 70.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":256}": {
+    "metrics": {"goodput_rps": 72.0, "p99_ttft_ms": 650.0, "p99_tbt_ms": 61.0, "throughput_rps": 78.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":512}": {
+    "metrics": {"goodput_rps": 80.0, "p99_ttft_ms": 620.0, "p99_tbt_ms": 58.0, "throughput_rps": 84.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":1024}": {
+    "metrics": {"goodput_rps": 76.0, "p99_ttft_ms": 660.0, "p99_tbt_ms": 62.0, "throughput_rps": 82.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":4,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":256}": {
+    "metrics": {"goodput_rps": 60.0, "p99_ttft_ms": 780.0, "p99_tbt_ms": 77.0, "throughput_rps": 70.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":4,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":512}": {
+    "metrics": {"goodput_rps": 60.0, "p99_ttft_ms": 780.0, "p99_tbt_ms": 77.0, "throughput_rps": 70.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":4,\"replica_scheduler_config_type\":\"vllm\",\"sarathi_scheduler_config_chunk_size\":1024}": {
+    "metrics": {"goodput_rps": 60.0, "p99_ttft_ms": 780.0, "p99_tbt_ms": 77.0, "throughput_rps": 70.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":4,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":256}": {
+    "metrics": {"goodput_rps": 62.0, "p99_ttft_ms": 750.0, "p99_tbt_ms": 72.0, "throughput_rps": 68.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":4,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":512}": {
+    "metrics": {"goodput_rps": 65.0, "p99_ttft_ms": 720.0, "p99_tbt_ms": 68.0, "throughput_rps": 70.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":4,\"replica_scheduler_config_type\":\"sarathi\",\"sarathi_scheduler_config_chunk_size\":1024}": {
+    "metrics": {"goodput_rps": 67.0, "p99_ttft_ms": 690.0, "p99_tbt_ms": 65.0, "throughput_rps": 72.0}
+  }
+}

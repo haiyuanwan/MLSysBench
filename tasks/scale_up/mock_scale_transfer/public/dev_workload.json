@@ -1,0 +1,10 @@
+{
+  "replicas": 8,
+  "workload": "balanced",
+  "seed": 11,
+  "config_overrides": {
+    "cluster_config_num_replicas": 8,
+    "poisson_request_interval_generator_config_qps": 40.0,
+    "synthetic_request_generator_config_num_requests": 128
+  }
+}

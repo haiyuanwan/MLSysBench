@@ -130,4 +130,16 @@ def _row_meets_slo(row: dict[str, str], slo: Any) -> bool:
                 return False
         except (KeyError, TypeError, ValueError):
             return False
+    tbt_limit_ms = getattr(slo, "p99_tbt_ms", None)
+    if tbt_limit_ms is not None:
+        try:
+            tbt_ms = (
+                float(row["decode_time"])
+                / max(float(row["request_num_decode_tokens"]), 1.0)
+                * 1000.0
+            )
+            if tbt_ms > tbt_limit_ms:
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
     return True

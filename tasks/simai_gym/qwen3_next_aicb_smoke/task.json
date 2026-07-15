@@ -17,6 +17,16 @@
     "baseline_metrics": "hidden/baseline_metrics.json",
     "eval_workload": "hidden/eval_workload.json"
   },
+  "constraints": {
+    "max_gpu_units": 32,
+    "max_steps": 2,
+    "immutable_fields": [
+      "fixed_request_length_generator_config_decode_tokens",
+      "fixed_request_length_generator_config_prefill_tokens",
+      "poisson_request_interval_generator_config_qps",
+      "synthetic_request_generator_config_num_requests"
+    ]
+  },
   "runner": {
     "type": "vidur",
     "vidur_root": "third_party/SimAI/vidur-alibabacloud",

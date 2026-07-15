@@ -5,5 +5,11 @@
   "num_requests": 1,
   "prefill_tokens": 100,
   "decode_tokens": 8,
-  "notes": "Smoke workload for verifying real Vidur+AICB execution on CUDA hosts."
+  "notes": "Smoke workload for verifying real Vidur+AICB execution on CUDA hosts.",
+  "config_overrides": {
+    "fixed_request_length_generator_config_decode_tokens": 8,
+    "fixed_request_length_generator_config_prefill_tokens": 100,
+    "poisson_request_interval_generator_config_qps": 100.0,
+    "synthetic_request_generator_config_num_requests": 1
+  }
 }

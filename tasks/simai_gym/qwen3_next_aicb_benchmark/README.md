@@ -21,3 +21,7 @@ python -m mlsysbench.simai_bench evaluate \
 
 The runner fails the evaluation if Vidur reports AICB default/fallback messages
 such as `AICB data is empty` or `Expected CSV file was NOT created`.
+
+The corrected baseline uses P99 TTFT <= 80 ms and P99 TBT <= 40 ms. These
+limits retain the Sarathi baseline while rejecting a measured vLLM variant
+whose throughput was similar but P99 TBT was about 2x worse.

@@ -6,5 +6,11 @@
   "arrival_process": "poisson",
   "qps": 100.0,
   "execution_time_backend": "aicb",
-  "notes": "Non-smoke real Vidur+AICB baseline profile. It exercises repeated request scheduling with AICB-backed layer timing data."
+  "notes": "Non-smoke real Vidur+AICB baseline profile. It exercises repeated request scheduling with AICB-backed layer timing data.",
+  "config_overrides": {
+    "fixed_request_length_generator_config_decode_tokens": 8,
+    "fixed_request_length_generator_config_prefill_tokens": 100,
+    "poisson_request_interval_generator_config_qps": 100.0,
+    "synthetic_request_generator_config_num_requests": 32
+  }
 }

@@ -1,0 +1,39 @@
+{
+  "task_id": "scale_up_mock_scheduler_transfer",
+  "track": "scale_up",
+  "description": "Explore scheduler and parallelism choices at 8 replicas, then submit a configuration for a hidden 32-replica workload.",
+  "baseline_config": "baseline_config.json",
+  "allowed_actions": "allowed_actions.json",
+  "objective": {
+    "primary_metric": "goodput_rps",
+    "direction": "maximize",
+    "score_cap": 2.0
+  },
+  "slo": {
+    "p99_ttft_ms": 800,
+    "p99_tbt_ms": 80
+  },
+  "development": {
+    "baseline_metrics": "public/baseline_metrics.json",
+    "eval_workload": "public/dev_workload.json"
+  },
+  "hidden": {
+    "baseline_metrics": "hidden/baseline_metrics.json",
+    "eval_workload": "hidden/eval_workload.json"
+  },
+  "constraints": {
+    "development_max_gpu_units": 32,
+    "max_gpu_units": 128,
+    "max_steps": 5,
+    "immutable_fields": [
+      "cluster_config_num_replicas",
+      "poisson_request_interval_generator_config_qps",
+      "synthetic_request_generator_config_num_requests"
+    ]
+  },
+  "runner": {
+    "type": "mock",
+    "mock_metrics_development": "public/mock_metrics.json",
+    "mock_metrics": "hidden/mock_metrics.json"
+  }
+}

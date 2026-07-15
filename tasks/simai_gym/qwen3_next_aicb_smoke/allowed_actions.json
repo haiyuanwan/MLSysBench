@@ -4,11 +4,6 @@
     "min": 1,
     "max": 64
   },
-  "poisson_request_interval_generator_config_qps": {
-    "type": "float",
-    "min": 1.0,
-    "max": 1000.0
-  },
   "replica_config_tensor_parallel_size": {
     "type": "int",
     "choices": [1, 2, 4, 8]
@@ -16,10 +11,5 @@
   "replica_scheduler_config_type": {
     "type": "str",
     "choices": ["vllm", "sarathi"]
-  },
-  "synthetic_request_generator_config_num_requests": {
-    "type": "int",
-    "min": 1,
-    "max": 64
   }
 }

@@ -29,6 +29,7 @@ class AgentTaskContext:
     allowed_actions: dict[str, dict[str, Any]]
     objective: dict[str, Any]
     slo: dict[str, Any]
+    constraints: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -71,6 +72,12 @@ def build_agent_context(task_dir: str | Path) -> AgentTaskContext:
             "p99_tbt_ms": task.slo.p99_tbt_ms,
             "p99_e2e_ms": task.slo.p99_e2e_ms,
         },
+        constraints={
+            "max_gpu_units": task.constraints.max_gpu_units,
+            "development_max_gpu_units": task.constraints.development_max_gpu_units,
+            "max_steps": task.constraints.max_steps,
+            "immutable_fields": list(task.constraints.immutable_fields),
+        },
     )
 
 
@@ -78,4 +85,3 @@ def _read_text_if_exists(path: Path) -> str | None:
     if not path.exists():
         return None
     return path.read_text(encoding="utf-8")
-

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 from mlsysbench.simai_bench.schema import Objective, SLO
@@ -49,6 +48,5 @@ def score_metrics(
     else:
         ratio = baseline_value / agent_value
 
-    score = max(0.0, min(math.log(ratio), objective.score_cap))
+    score = max(0.0, min(ratio, objective.score_cap))
     return ScoreBreakdown(valid=True, score=score, ratio=ratio, failures=[])
-

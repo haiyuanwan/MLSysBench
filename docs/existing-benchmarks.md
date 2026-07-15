@@ -15,10 +15,11 @@ Benchmarks that evaluate LLMs/AI agents on code optimization, kernel writing, an
 - **Scale**: Evaluated 15 frontier agents — Claude Sonnet 4.6 (#1), GLM-5 (#2), Gemini 3.1 Pro (#3), GPT-5.3 Codex (#4)
 - **Key findings**: Non-agent search (Random/SMAC3/TPE) beats all agents within 2 hours; 93.9% of agent runs use vLLM; agents do "shallow search" and fail to retain best configurations
 - **Limitations**:
-  - Focuses on serving deployment and hyperparameter tuning — does not test kernel writing, quantization algorithm implementation, or system component development
   - Single model (Mistral-7B) only
-  - Does not evaluate analysis/decision-making ability (profiling interpretation, bottleneck identification)
-  - No algorithm-level tasks (speculative decoding, KV cache optimization, etc.)
+  - Single-GPU evaluation cannot cover large-cluster topology, parallelism, or scale-transfer decisions
+  - Real H100 sessions make broad model/hardware/workload matrices expensive
+  - Development and final evaluation remain at the same deployment scale
+  - Its open action space is strong for engineering realism but less controlled for isolating specific systems reasoning capabilities
 
 ### PerfCodeBench (2026)
 

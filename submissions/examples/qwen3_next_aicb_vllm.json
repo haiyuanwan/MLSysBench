@@ -1,0 +1,6 @@
+{
+  "changes": {
+    "replica_scheduler_config_type": "vllm"
+  },
+  "notes": "Hold workload, GPU budget, and TP fixed; compare vLLM scheduling against the Sarathi baseline."
+}

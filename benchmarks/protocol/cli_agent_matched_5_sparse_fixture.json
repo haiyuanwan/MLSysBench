@@ -1,0 +1,82 @@
+{
+  "date": "2026-07-15",
+  "protocol": {
+    "development_queries": 5,
+    "wall_time_seconds": 900,
+    "isolation": "landlock",
+    "model_max_output_tokens": 131072,
+    "task": "scale_up_mock_scheduler_transfer",
+    "task_definition_sha256": "74e73a07545e6d45b7c598b0eeae1d2dfdab530af1037bcaafcfe00fe744c742",
+    "development_workload_sha256": "8c515e1cf2e466f988ef41767f4c39a5dfe71b10cc94058fbeb9921cffd80b5a",
+    "development_surface_sha256": "79afe93ba3bedd38d6bbb06bd4dbf47b8589a139350bf7f3e09128eebeab6adb",
+    "final_workload_sha256": "6f19059019c995d237cca23f4c3eede6e4814962a9d26dff9cece26a4fc5075c",
+    "final_surface_sha256": "346ccb81b4b1dc40ab66c71551cc24ba035b96ad21ad278567c5c41d76f91d95"
+  },
+  "caveat": "Protocol smoke test only. This fixture revision omitted the baseline signature and mapped only 2 of 18 configurations; all other configurations shared one invalid default. Results are not model capability estimates.",
+  "models": [
+    {
+      "model": "meituan-longcat/LongCat-2.0",
+      "context_window": 1048576,
+      "elapsed_seconds": 94.620463,
+      "api_calls": 15,
+      "total_tokens": 81136,
+      "first_valid_query": 5,
+      "best_development_ratio": 1.34,
+      "final_ratio": 1.875,
+      "final_valid": true
+    },
+    {
+      "model": "zai-org/GLM-5.2",
+      "context_window": 1000000,
+      "elapsed_seconds": 263.320959,
+      "api_calls": 16,
+      "total_tokens": 193081,
+      "first_valid_query": 4,
+      "best_development_ratio": 1.34,
+      "final_ratio": 1.875,
+      "final_valid": true
+    },
+    {
+      "model": "moonshotai/Kimi-K2.7-Code",
+      "context_window": 262144,
+      "elapsed_seconds": 44.646618,
+      "api_calls": 16,
+      "total_tokens": 67750,
+      "first_valid_query": 4,
+      "best_development_ratio": 1.34,
+      "final_ratio": 1.875,
+      "final_valid": true
+    },
+    {
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "context_window": 1000000,
+      "elapsed_seconds": 212.459064,
+      "api_calls": 22,
+      "total_tokens": 180177,
+      "first_valid_query": 5,
+      "best_development_ratio": 1.34,
+      "final_ratio": 1.875,
+      "final_valid": true
+    }
+  ],
+  "search_baselines": {
+    "grid": {
+      "seeds": 1,
+      "valid_finals": 0,
+      "mean_final_ratio_with_invalid_as_zero": 0.0
+    },
+    "random": {
+      "seeds": 20,
+      "valid_finals": 10,
+      "final_ratio_1_3125": 5,
+      "final_ratio_1_875": 5,
+      "mean_final_ratio_with_invalid_as_zero": 0.796875
+    }
+  },
+  "observations": [
+    "All four agents used the full query budget and found the hidden-optimal TP4 plus Sarathi plus chunk-1024 interaction only on query 4 or 5.",
+    "No agent measured the public optimum TP2 plus Sarathi plus chunk-512 configuration.",
+    "The sparse invalid default made single-variable experiments uninformative and turned the task into a combination-guessing test.",
+    "LongCat failed with a 3-query budget in an earlier run but succeeded with 5 queries, so single-budget rankings are unstable."
+  ]
+}

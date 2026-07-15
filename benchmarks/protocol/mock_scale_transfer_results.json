@@ -1,0 +1,42 @@
+{
+  "benchmark": "mock_scale_transfer_protocol_validation",
+  "date": "2026-07-14",
+  "synthetic": true,
+  "warning": "These results validate the harness and must not be reported as language-model capability results.",
+  "task": "tasks/scale_up/mock_scale_transfer",
+  "results": [
+    {
+      "method": "deterministic_agent_protocol",
+      "development_queries": 3,
+      "best_development_ratio": 1.6,
+      "hidden_final_ratio": 1.875
+    },
+    {
+      "method": "grid",
+      "development_queries": 18,
+      "best_development_ratio": 1.6,
+      "hidden_final_ratio": 1.3125
+    },
+    {
+      "method": "random",
+      "seed": 1,
+      "development_queries": 6,
+      "best_development_ratio": 1.6,
+      "hidden_final_ratio": 1.3125
+    },
+    {
+      "method": "random",
+      "seed": 2,
+      "development_queries": 6,
+      "best_development_ratio": 1.34,
+      "hidden_final_ratio": 1.875
+    },
+    {
+      "method": "random",
+      "seed": 3,
+      "development_queries": 6,
+      "best_development_ratio": null,
+      "hidden_final_ratio": null
+    }
+  ]
+}

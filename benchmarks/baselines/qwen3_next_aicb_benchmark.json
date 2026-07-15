@@ -1,4 +1,5 @@
 {
+  "valid": true,
   "backend": "vidur+aicb",
   "model": "qwen3-next-80B",
   "profile": "qwen3_next_aicb_benchmark",
@@ -10,16 +11,17 @@
   "prefill_tokens": 100,
   "decode_tokens": 8,
   "metrics": {
-    "goodput_rps": 129.9910913076327,
+    "goodput_rps": 60.485585042189015,
     "num_requests": 32.0,
-    "p50_e2e_ms": 0.27766230338086006,
-    "p50_ttft_ms": 0.033720787922603135,
-    "p95_e2e_ms": 0.2776623033808878,
-    "p95_ttft_ms": 0.03633867822513959,
-    "p99_e2e_ms": 0.302036216334331,
-    "p99_tbt_ms": 0.030492689432282116,
-    "p99_ttft_ms": 0.058094700876077515,
-    "throughput_rps": 129.9910913076327
+    "p50_e2e_ms": 282.5095015564568,
+    "p50_ttft_ms": 54.284080212490565,
+    "p95_e2e_ms": 293.09352740569915,
+    "p95_ttft_ms": 64.91571398851373,
+    "p99_e2e_ms": 293.9932995160962,
+    "p99_tbt_ms": 30.4926894322815,
+    "p99_ttft_ms": 67.18828745478746,
+    "throughput_rps": 60.485585042189015
   },
-  "notes": "Baseline metrics are updated from the local CUDA host run. On sm89 Ada GPUs, DeepGEMM FP8 timing uses the real CUDA bf16 fallback path rather than mock/default timing."
+  "run_output": "runs/real_bench/aicb_qwen3_next_benchmark/20260714_104935",
+  "notes": "Regenerated on 2026-07-14 after fixing the AICB nanoseconds-to-seconds double conversion. On sm89 Ada GPUs, DeepGEMM uses the real CUDA bf16 fallback path rather than mock/default timing."
 }

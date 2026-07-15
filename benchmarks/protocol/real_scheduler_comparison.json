@@ -1,0 +1,39 @@
+{
+  "benchmark": "qwen3_next_aicb_scheduler_comparison",
+  "date": "2026-07-14",
+  "hardware": "2 x NVIDIA RTX5880-Ada-48Q",
+  "workload": {
+    "requests": 32,
+    "qps": 100.0,
+    "prefill_tokens": 100,
+    "decode_tokens": 8
+  },
+  "fixed_configuration": {
+    "cluster_config_num_replicas": 32,
+    "replica_config_tensor_parallel_size": 1,
+    "gpu_units": 32
+  },
+  "slo": {
+    "p99_ttft_ms": 80.0,
+    "p99_tbt_ms": 40.0
+  },
+  "results": {
+    "sarathi": {
+      "goodput_rps": 60.485585042189015,
+      "p99_e2e_ms": 293.9932995160962,
+      "p99_ttft_ms": 67.18828745478746,
+      "p99_tbt_ms": 30.4926894322815,
+      "slo_valid": true
+    },
+    "vllm": {
+      "goodput_rps_under_original_loose_slo": 60.793207572044544,
+      "goodput_rps_under_calibrated_slo": 28.49681604939588,
+      "p99_e2e_ms": 526.3745947617188,
+      "p99_ttft_ms": 67.26677672743901,
+      "p99_tbt_ms": 61.58172585488892,
+      "slo_valid": false,
+      "final_score": 0.0
+    }
+  },
+  "finding": "The original 800/80 ms SLO rewarded a 0.5% goodput increase despite 79% worse P99 E2E and about 2x worse P99 TBT. The benchmark SLO was tightened to 80/40 ms."
+}

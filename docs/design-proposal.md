@@ -1,5 +1,9 @@
 # MLSysBench Design Proposal
 
+> Historical broad-scope proposal. The executable benchmark and current paper
+> direction are defined in the repository README: simulator-grounded diagnosis,
+> matched-budget optimization, and public-to-hidden scale transfer.
+
 ## 1. Positioning & Differentiation
 
 MLSysBench evaluates LLMs and AI agents on **full-stack LLM inference optimization** — a capability that no existing benchmark covers end-to-end.
