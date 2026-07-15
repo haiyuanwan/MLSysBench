@@ -19,9 +19,11 @@ PUBLIC_OPTIONAL_FILES = ("README.md", "symptoms.txt", "public_report.json")
 
 @dataclass(frozen=True)
 class AgentTaskContext:
+    schema_version: int
     task_id: str
     track: str
     description: str
+    scenario: dict[str, Any]
     readme: str | None
     symptoms: str | None
     public_report: dict[str, Any] | None
@@ -54,9 +56,16 @@ def build_agent_context(task_dir: str | Path) -> AgentTaskContext:
         }
 
     return AgentTaskContext(
+        schema_version=task.schema_version,
         task_id=task.task_id,
         track=task.track,
         description=task.description,
+        scenario={
+            "family": task.scenario.family,
+            "transfer": task.scenario.transfer,
+            "starting_point": task.scenario.starting_point,
+            "profiles": list(task.scenario.profiles),
+        },
         readme=readme,
         symptoms=symptoms,
         public_report=public_report,

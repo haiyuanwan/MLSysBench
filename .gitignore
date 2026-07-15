@@ -6,6 +6,10 @@
 .cuda-12.8-compat/
 __pycache__/
 *.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
 runs/
 third_party/SimAI/bin/
 third_party/SimAI/results/

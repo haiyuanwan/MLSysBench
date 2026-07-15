@@ -1,6 +1,8 @@
 {
   "request_generator": "synthetic",
   "arrival": "poisson",
+  "scenario_family": "prefill_heavy",
+  "profiles": ["long_prompt"],
   "prompt_length": "heavy_tail_long",
   "decode_length": "mixed",
   "seed": 9,

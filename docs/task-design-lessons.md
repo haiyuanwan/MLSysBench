@@ -135,15 +135,27 @@ The implementation borrows these mechanisms from
 execution, wall-clock accounting, clean final relaunch, held-out seeds, matched
 HPO baselines, and trajectory analysis. It intentionally does not copy the
 monolithic shell orchestration or treat a read-only mount as hidden data.
+Inspection of InferenceBench commit `24cdf88` confirms that its Codex agents run
+through native `codex exec`/`resume` inside Apptainer; the repository contains
+no CC Switch integration. MLSysBench therefore treats Codex CLI as the
+canonical scaffold and documents CC Switch strictly as its SiliconFlow protocol
+bridge.
 
 ## Next Implementation Order
 
-1. Add schema-level conditional actions and canonical configuration hashing.
-2. Add a task-validation command that checks baseline consistency, complete
-   mock coverage, workload separation, and oracle validity.
-3. Build one calibrated task from each matrix row, starting with IID,
-   scale-transfer, and network-transfer tasks.
-4. Install and execute the optional Optuna/SMAC3 baselines on the same hosts as
-   agent runs.
-5. Add prompt-style and budget-curve runners with repeated seeds.
-6. Add normalized regret, quality gates, and multi-seed final aggregation.
+The repository-wide implementation order is defined by the
+[benchmark protocol](benchmark-protocol.md) and [roadmap](status-and-roadmap.md):
+
+1. define the four canonical scenario families;
+2. create genuinely different development/final pairs;
+3. establish the four-tier baseline ladder;
+4. implement repeated run-matrix execution and aggregation;
+5. move final replay into a fresh container or ephemeral worker;
+6. add starting-point ablations;
+7. calibrate simulator decisions against real hardware;
+8. open the server/code modification track only after the preceding gates pass.
+
+Conditional actions, canonical configuration hashing, stronger validation,
+portable runtime profiles, optional-search adapters, and CI are cross-cutting
+foundations. They should be added when the stage that first depends on them is
+implemented rather than treated as a competing roadmap.

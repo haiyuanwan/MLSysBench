@@ -1,0 +1,6 @@
+{
+  "goodput_rps": 70.0,
+  "p99_ttft_ms": 560.0,
+  "p99_tbt_ms": 65.0,
+  "throughput_rps": 78.0
+}

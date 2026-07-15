@@ -172,8 +172,20 @@ def main() -> None:
     cli_agent_parser.add_argument(
         "--agent-profile",
         choices=["custom", "chat-completions", "longcat", "codex"],
-        default="custom",
-        help="Use a custom CLI command or the bundled tool-using Chat Completions agent",
+        default="codex",
+        help=(
+            "Agent scaffold. Benchmark mode defaults to the isolated Codex CLI + "
+            "CC Switch profile"
+        ),
+    )
+    cli_agent_parser.add_argument(
+        "--agent-mode",
+        choices=["benchmark", "debug"],
+        default="benchmark",
+        help=(
+            "Benchmark mode requires Codex CLI + CC Switch; debug mode permits "
+            "custom and direct Chat Completions agents"
+        ),
     )
     cli_agent_parser.add_argument("--model", help="Override MODEL_NAME for the chat agent")
     cli_agent_parser.add_argument("--base-url", help="Override MODEL_BASE_URL for the chat agent")
@@ -219,8 +231,8 @@ def main() -> None:
     cli_agent_parser.add_argument(
         "--isolation",
         choices=["landlock", "bwrap", "none"],
-        default="landlock",
-        help="Agent filesystem isolation backend",
+        default="bwrap",
+        help="Agent isolation backend; benchmark mode requires bwrap",
     )
     cli_agent_parser.add_argument(
         "--agent-read-path",
@@ -310,6 +322,11 @@ def main() -> None:
             raise SystemExit(1)
     elif args.command == "run-cli-agent":
         load_dotenv()
+        if args.agent_mode == "benchmark" and args.agent_profile != "codex":
+            raise ConfigError(
+                "--agent-mode benchmark requires --agent-profile codex; "
+                "use --agent-mode debug for other profiles"
+            )
         agent_read_paths = list(args.agent_read_path)
         agent_environment = {}
         if args.model:
@@ -381,5 +398,11 @@ def main() -> None:
             agent_read_paths=agent_read_paths,
             agent_environment=agent_environment,
             agent_runtime=agent_runtime,
+            agent_scaffold=(
+                "codex-cli+cc-switch"
+                if args.agent_profile == "codex"
+                else args.agent_profile
+            ),
+            benchmark_mode=args.agent_mode == "benchmark",
         )
         print(json.dumps(cli_agent_result.to_dict(), indent=2, sort_keys=True))

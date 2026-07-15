@@ -1,6 +1,8 @@
 {
   "model": "qwen3-next-80B",
   "backend": "aicb",
+  "scenario_family": "decode_heavy",
+  "profiles": ["short_output"],
   "request_generator": "synthetic",
   "num_requests": 1,
   "prefill_tokens": 100,

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "task_id": "scenario_mock_decode_heavy",
+  "track": "simai_gym",
+  "description": "Dependency-free fixture for validating decode-heavy scenario metadata and scoring.",
+  "scenario": {
+    "family": "decode_heavy",
+    "transfer": "workload_shift",
+    "starting_point": "framework_default",
+    "profiles": ["short_output", "long_output"]
+  },
+  "baseline_config": "baseline_config.json",
+  "allowed_actions": "allowed_actions.json",
+  "objective": {
+    "primary_metric": "p99_tbt_ms",
+    "direction": "minimize",
+    "score_cap": 2.0
+  },
+  "slo": {
+    "p99_ttft_ms": 800,
+    "p99_tbt_ms": 80
+  },
+  "development": {
+    "baseline_metrics": "public/baseline_metrics.json",
+    "eval_workload": "public/dev_workload.json"
+  },
+  "hidden": {
+    "baseline_metrics": "hidden/baseline_metrics.json",
+    "eval_workload": "hidden/eval_workload.json"
+  },
+  "constraints": {
+    "development_max_gpu_units": 8,
+    "max_gpu_units": 16,
+    "max_steps": 4,
+    "immutable_fields": [
+      "cluster_config_num_replicas",
+      "fixed_request_length_generator_config_decode_tokens",
+      "synthetic_request_generator_config_num_requests"
+    ]
+  },
+  "runner": {
+    "type": "mock",
+    "mock_metrics_development": "public/mock_metrics.json",
+    "mock_metrics": "hidden/mock_metrics.json"
+  }
+}

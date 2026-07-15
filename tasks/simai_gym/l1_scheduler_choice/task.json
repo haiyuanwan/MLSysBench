@@ -1,7 +1,14 @@
 {
+  "schema_version": 1,
   "task_id": "simai_gym_l1_scheduler_choice",
   "track": "simai_gym",
   "description": "Choose a scheduler and batching policy for a long-prefill workload under TTFT/TBT SLO.",
+  "scenario": {
+    "family": "prefill_heavy",
+    "transfer": "none",
+    "starting_point": "framework_default",
+    "profiles": ["long_prompt"]
+  },
   "baseline_config": "baseline_config.json",
   "allowed_actions": "allowed_actions.json",
   "objective": {

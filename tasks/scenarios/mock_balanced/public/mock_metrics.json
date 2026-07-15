@@ -1,0 +1,14 @@
+{
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"vllm\"}": {
+    "metrics": {"goodput_rps": 50.0, "p99_ttft_ms": 600.0, "p99_tbt_ms": 65.0, "throughput_rps": 56.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":1,\"replica_scheduler_config_type\":\"sarathi\"}": {
+    "metrics": {"goodput_rps": 58.0, "p99_ttft_ms": 570.0, "p99_tbt_ms": 61.0, "throughput_rps": 64.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"vllm\"}": {
+    "metrics": {"goodput_rps": 62.0, "p99_ttft_ms": 550.0, "p99_tbt_ms": 59.0, "throughput_rps": 68.0}
+  },
+  "{\"replica_config_tensor_parallel_size\":2,\"replica_scheduler_config_type\":\"sarathi\"}": {
+    "metrics": {"goodput_rps": 70.0, "p99_ttft_ms": 520.0, "p99_tbt_ms": 56.0, "throughput_rps": 76.0}
+  }
+}

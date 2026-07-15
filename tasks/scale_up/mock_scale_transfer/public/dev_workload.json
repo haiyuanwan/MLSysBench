@@ -1,6 +1,8 @@
 {
   "replicas": 8,
   "workload": "balanced",
+  "scenario_family": "high_load",
+  "profiles": ["poisson"],
   "seed": 11,
   "config_overrides": {
     "cluster_config_num_replicas": 8,

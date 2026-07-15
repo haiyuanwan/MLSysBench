@@ -1,0 +1,10 @@
+{
+  "scenario_family": "prefill_heavy",
+  "profiles": ["short_prompt", "long_prompt"],
+  "seed": 1101,
+  "config_overrides": {
+    "cluster_config_num_replicas": 8,
+    "fixed_request_length_generator_config_prefill_tokens": 4096,
+    "synthetic_request_generator_config_num_requests": 128
+  }
+}

@@ -1,7 +1,14 @@
 {
+  "schema_version": 1,
   "task_id": "simai_gym_qwen3_next_aicb_smoke",
   "track": "simai_gym",
   "description": "Real Vidur+AICB smoke task for Qwen3-Next-80B decode timing on a CUDA host.",
+  "scenario": {
+    "family": "decode_heavy",
+    "transfer": "none",
+    "starting_point": "framework_default",
+    "profiles": ["short_output"]
+  },
   "baseline_config": "baseline_config.json",
   "allowed_actions": "allowed_actions.json",
   "objective": {

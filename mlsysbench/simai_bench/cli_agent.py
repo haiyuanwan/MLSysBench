@@ -217,11 +217,23 @@ def run_cli_agent(
     agent_read_write_paths: Sequence[str | Path] = (),
     agent_environment: dict[str, str] | None = None,
     agent_runtime: AgentRuntime | None = None,
+    agent_scaffold: str = "custom",
+    benchmark_mode: bool = False,
 ) -> CLIAgentRunResult:
     """Run a CLI agent, then replay its final submission in a fresh evaluator."""
 
     if wall_time_seconds <= 0:
         raise ConfigError("wall_time_seconds must be positive")
+    if benchmark_mode and agent_scaffold != "codex-cli+cc-switch":
+        raise ConfigError(
+            "benchmark mode requires the canonical codex-cli+cc-switch scaffold; "
+            "use debug mode for custom or chat-completions agents"
+        )
+    if benchmark_mode and isolation != "bwrap":
+        raise ConfigError(
+            "benchmark mode requires bwrap process isolation; "
+            "Landlock-only and unisolated runs are debug runs"
+        )
     if isolation not in {"landlock", "bwrap", "none"}:
         raise ConfigError("isolation must be one of: landlock, bwrap, none")
     if isolation == "landlock" and landlock_abi_version() is None:
@@ -450,6 +462,8 @@ def run_cli_agent(
         agent_read_paths=effective_read_paths,
         agent_read_write_paths=effective_read_write_paths,
         agent_runtime=runtime_metadata,
+        agent_scaffold=agent_scaffold,
+        benchmark_mode=benchmark_mode,
         started_at=started_at,
         completed_at=completed_at,
         elapsed_seconds=elapsed_seconds,
@@ -899,6 +913,8 @@ def _build_manifest(
     agent_read_paths: Sequence[str | Path],
     agent_read_write_paths: Sequence[str | Path],
     agent_runtime: dict[str, Any] | None,
+    agent_scaffold: str,
+    benchmark_mode: bool,
     started_at: str,
     completed_at: str,
     elapsed_seconds: float,
@@ -932,6 +948,8 @@ def _build_manifest(
             "development_queries_used": queries_used,
         },
         "agent": {
+            "scaffold": agent_scaffold,
+            "benchmark_mode": benchmark_mode,
             "command": _redact_argv(argv, environment),
             "exit_code": agent_exit_code,
             "timed_out": timed_out,

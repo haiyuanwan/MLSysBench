@@ -33,7 +33,7 @@ from mlsysbench.simai_bench.model_client import (
     make_model_client,
 )
 from mlsysbench.simai_bench.runner import VidurRunner, detect_aicb_failure_or_default
-from mlsysbench.simai_bench.schema import RunnerSpec, SLO, TaskSpec
+from mlsysbench.simai_bench.schema import RunnerSpec, SLO, ScenarioSpec, TaskSpec
 from mlsysbench.simai_bench.search import run_search
 from mlsysbench.simai_bench.task_validation import validate_task
 
@@ -42,6 +42,12 @@ ROOT = Path(__file__).resolve().parents[1]
 TASK = ROOT / "tasks" / "simai_gym" / "l1_scheduler_choice"
 REAL_TASK = ROOT / "tasks" / "simai_gym" / "qwen3_next_aicb_benchmark"
 SCALE_TASK = ROOT / "tasks" / "scale_up" / "mock_scale_transfer"
+SCENARIO_TASKS = {
+    "prefill_heavy": ROOT / "tasks" / "scenarios" / "mock_prefill_heavy",
+    "decode_heavy": ROOT / "tasks" / "scenarios" / "mock_decode_heavy",
+    "high_load": SCALE_TASK,
+    "balanced": ROOT / "tasks" / "scenarios" / "mock_balanced",
+}
 SUBMISSION = ROOT / "submissions" / "examples" / "sarathi_scheduler.json"
 
 
@@ -296,6 +302,76 @@ class SimAIBenchTest(unittest.TestCase):
             self.assertNotIn("default", surface)
             self.assertEqual(len(surface), 18)
 
+    def test_canonical_scenario_fixtures_are_dense_and_valid(self):
+        expected_profiles = {
+            "prefill_heavy": {"short_prompt", "long_prompt"},
+            "decode_heavy": {"short_output", "long_output"},
+            "high_load": {"burst", "poisson", "constant"},
+            "balanced": {"mixed_prompt_output", "mixed_concurrency"},
+        }
+
+        for family, task_path in SCENARIO_TASKS.items():
+            with self.subTest(family=family):
+                task = TaskSpec.load(task_path)
+                result = validate_task(task_path)
+
+                self.assertEqual(task.schema_version, 1)
+                self.assertEqual(task.scenario.family, family)
+                self.assertEqual(set(task.scenario.profiles), expected_profiles[family])
+                self.assertTrue(result.valid, result.errors)
+                self.assertEqual(result.warnings, [])
+                self.assertEqual(
+                    result.details["scenario"]["missing_canonical_profiles"], []
+                )
+                self.assertFalse(
+                    result.details["development_mock_surface"]["has_default"]
+                )
+                self.assertFalse(result.details["final_mock_surface"]["has_default"])
+                self.assertEqual(
+                    result.details["development_mock_surface"]["missing_configurations"],
+                    0,
+                )
+                self.assertEqual(
+                    result.details["final_mock_surface"]["missing_configurations"], 0
+                )
+
+    def test_scenario_schema_rejects_cross_family_profiles(self):
+        with self.assertRaisesRegex(ConfigError, "does not support profiles"):
+            ScenarioSpec.from_dict(
+                {
+                    "family": "prefill_heavy",
+                    "transfer": "workload_shift",
+                    "starting_point": "framework_default",
+                    "profiles": ["burst"],
+                }
+            )
+
+    def test_task_schema_version_is_required_and_supported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_copy = Path(tmpdir) / "task"
+            shutil.copytree(SCENARIO_TASKS["balanced"], task_copy)
+            task_path = task_copy / "task.json"
+            payload = json.loads(task_path.read_text(encoding="utf-8"))
+            payload["schema_version"] = 99
+            task_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ConfigError, "schema_version"):
+                TaskSpec.load(task_copy)
+
+    def test_task_validator_rejects_workload_family_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_copy = Path(tmpdir) / "task"
+            shutil.copytree(SCENARIO_TASKS["prefill_heavy"], task_copy)
+            workload_path = task_copy / "hidden" / "eval_workload.json"
+            workload = json.loads(workload_path.read_text(encoding="utf-8"))
+            workload["scenario_family"] = "decode_heavy"
+            workload_path.write_text(json.dumps(workload), encoding="utf-8")
+
+            result = validate_task(task_copy)
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("does not match" in error for error in result.errors))
+
     def test_task_validator_rejects_incomplete_mock_surface(self):
         valid_result = validate_task(SCALE_TASK)
         self.assertTrue(valid_result.valid)
@@ -346,6 +422,39 @@ class SimAIBenchTest(unittest.TestCase):
             self.assertNotIn("hidden", context)
             self.assertNotIn("runner", context)
             self.assertNotIn(str(SCALE_TASK), json.dumps(context))
+            self.assertEqual(context["schema_version"], 1)
+            self.assertEqual(context["scenario"]["family"], "high_load")
+            self.assertEqual(context["scenario"]["transfer"], "scale_up")
+
+    def test_benchmark_mode_requires_canonical_codex_scaffold(self):
+        with tempfile.TemporaryDirectory() as tmpdir, self.assertRaisesRegex(
+            ConfigError, r"codex-cli\+cc-switch"
+        ):
+            run_cli_agent(
+                SCALE_TASK,
+                Path(tmpdir) / "run",
+                [sys.executable, "-c", "pass"],
+                wall_time_seconds=10,
+                max_queries=1,
+                isolation="landlock",
+                agent_scaffold="custom",
+                benchmark_mode=True,
+            )
+
+    def test_benchmark_mode_requires_process_isolation(self):
+        with tempfile.TemporaryDirectory() as tmpdir, self.assertRaisesRegex(
+            ConfigError, "bwrap process isolation"
+        ):
+            run_cli_agent(
+                SCALE_TASK,
+                Path(tmpdir) / "run",
+                [sys.executable, "-c", "pass"],
+                wall_time_seconds=10,
+                max_queries=1,
+                isolation="landlock",
+                agent_scaffold="codex-cli+cc-switch",
+                benchmark_mode=True,
+            )
 
     def test_cli_agent_enforces_landlock_query_budget_and_clean_final_replay(self):
         private_metrics = SCALE_TASK / "hidden" / "mock_metrics.json"
@@ -397,6 +506,8 @@ class SimAIBenchTest(unittest.TestCase):
         self.assertIsNotNone(result.final_evaluation)
         self.assertAlmostEqual(result.final_evaluation.ratio, 1.875)
         self.assertEqual(manifest["isolation"]["backend"], "landlock")
+        self.assertEqual(manifest["agent"]["scaffold"], "custom")
+        self.assertFalse(manifest["agent"]["benchmark_mode"])
         self.assertTrue(manifest["isolation"]["hard_filesystem_boundary"])
         self.assertFalse(manifest["isolation"]["process_isolated"])
         self.assertEqual(manifest["budgets"]["development_queries_used"], 1)

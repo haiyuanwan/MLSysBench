@@ -12,7 +12,11 @@ from typing import Any
 from mlsysbench.simai_bench.evaluator import evaluate_changes
 from mlsysbench.simai_bench.io import load_structured, resolve_task_path
 from mlsysbench.simai_bench.runner import change_signature
-from mlsysbench.simai_bench.schema import TaskSpec
+from mlsysbench.simai_bench.schema import (
+    SCENARIO_OBJECTIVES,
+    SCENARIO_PROFILES,
+    TaskSpec,
+)
 from mlsysbench.simai_bench.search import _candidate_configs
 
 
@@ -43,7 +47,9 @@ def validate_task(
     task = TaskSpec.load(task_dir)
     errors: list[str] = []
     warnings: list[str] = []
-    details: dict[str, Any] = {}
+    details: dict[str, Any] = {"schema_version": task.schema_version}
+
+    _validate_scenario(task, errors, warnings, details)
 
     baseline_config = task.load_baseline_config()
     allowed_actions = task.load_allowed_actions()
@@ -97,6 +103,98 @@ def validate_task(
         warnings=warnings,
         details=details,
     )
+
+
+def _validate_scenario(
+    task: TaskSpec,
+    errors: list[str],
+    warnings: list[str],
+    details: dict[str, Any],
+) -> None:
+    declared_profiles = set(task.scenario.profiles)
+    canonical_profiles = SCENARIO_PROFILES[task.scenario.family]
+    missing_profiles = sorted(canonical_profiles - declared_profiles)
+    details["scenario"] = {
+        "family": task.scenario.family,
+        "transfer": task.scenario.transfer,
+        "starting_point": task.scenario.starting_point,
+        "profiles": list(task.scenario.profiles),
+        "missing_canonical_profiles": missing_profiles,
+    }
+    objective = (task.objective.primary_metric, task.objective.direction)
+    details["scenario"]["objective"] = {
+        "primary_metric": objective[0],
+        "direction": objective[1],
+    }
+    if objective not in SCENARIO_OBJECTIVES[task.scenario.family]:
+        supported = ", ".join(
+            f"{metric}:{direction}"
+            for metric, direction in sorted(SCENARIO_OBJECTIVES[task.scenario.family])
+        )
+        errors.append(
+            f"scenario {task.scenario.family!r} does not support objective "
+            f"{objective[0]}:{objective[1]}; expected one of {supported}"
+        )
+    if missing_profiles:
+        warnings.append(
+            f"scenario {task.scenario.family} does not cover canonical profiles: "
+            + ", ".join(missing_profiles)
+        )
+
+    phase_paths = {"final": task.hidden.eval_workload}
+    if task.development is not None:
+        phase_paths["development"] = task.development.eval_workload
+    for phase, path in phase_paths.items():
+        workload = _workload_scenario(path)
+        details[f"{phase}_workload_scenario"] = workload
+        workload_family = workload.get("scenario_family")
+        if workload_family is None:
+            errors.append(f"{phase} workload must declare scenario_family")
+        elif workload_family != task.scenario.family:
+            errors.append(
+                f"{phase} workload scenario_family {workload_family!r} does not match "
+                f"task scenario {task.scenario.family!r}"
+            )
+
+        workload_profiles = workload.get("profiles")
+        if workload_profiles is None:
+            errors.append(f"{phase} workload must declare profiles")
+            continue
+        unexpected_profiles = sorted(set(workload_profiles) - declared_profiles)
+        if unexpected_profiles:
+            errors.append(
+                f"{phase} workload uses undeclared scenario profiles: "
+                + ", ".join(unexpected_profiles)
+            )
+        if phase == "final":
+            missing_from_final = sorted(declared_profiles - set(workload_profiles))
+            if missing_from_final:
+                errors.append(
+                    "final workload does not exercise declared scenario profiles: "
+                    + ", ".join(missing_from_final)
+                )
+
+    if task.scenario.transfer == "none" and task.development is not None:
+        warnings.append("scenario transfer is 'none' but task defines a development phase")
+    if task.scenario.transfer != "none" and task.development is None:
+        warnings.append(
+            f"scenario transfer {task.scenario.transfer!r} has no development phase"
+        )
+
+
+def _workload_scenario(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return {}
+    payload = load_structured(path)
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, Any] = {}
+    if isinstance(payload.get("scenario_family"), str):
+        result["scenario_family"] = payload["scenario_family"]
+    profiles = payload.get("profiles")
+    if isinstance(profiles, list) and all(isinstance(item, str) for item in profiles):
+        result["profiles"] = profiles
+    return result
 
 
 def _validate_mock_surfaces(

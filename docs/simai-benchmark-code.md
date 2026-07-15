@@ -1,7 +1,11 @@
-# SimAI Benchmark Code Scaffold
+# Implementation and CUDA Runbook
 
-The first code scaffold implements the benchmark protocol described in
-`docs/simai-benchmark-proposals.md`:
+This document describes the current implementation and the host-specific
+Vidur+AICB setup used for the checked-in real baseline summaries. Start with
+the [repository README](../README.md) for the dependency-free quick start and
+read [Status and roadmap](status-and-roadmap.md) before interpreting results.
+
+The implementation includes:
 
 - task specification loading
 - allowed action validation

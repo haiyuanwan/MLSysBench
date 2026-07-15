@@ -1,8 +1,9 @@
 # MLSysBench Design Proposal
 
-> Historical broad-scope proposal. The executable benchmark and current paper
-> direction are defined in the repository README: simulator-grounded diagnosis,
-> matched-budget optimization, and public-to-hidden scale transfer.
+> Historical broad-scope proposal. It is retained for research context and is
+> not the implementation plan. The current normative design is the
+> [benchmark protocol](benchmark-protocol.md); implemented scope and ordered
+> milestones are recorded in [status and roadmap](status-and-roadmap.md).
 
 ## 1. Positioning & Differentiation
 

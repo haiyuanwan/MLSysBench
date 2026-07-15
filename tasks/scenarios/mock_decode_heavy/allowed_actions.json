@@ -1,0 +1,10 @@
+{
+  "replica_config_tensor_parallel_size": {
+    "type": "int",
+    "choices": [1, 2]
+  },
+  "replica_scheduler_config_type": {
+    "type": "str",
+    "choices": ["vllm", "sarathi"]
+  }
+}

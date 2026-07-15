@@ -12,6 +12,13 @@ license = {file = "LICENSE"}
 authors = [{name = "MLSysBench contributors"}]
 dependencies = []
 
+[project.scripts]
+mlsysbench = "mlsysbench.simai_bench.__main__:entrypoint"
+
+[project.urls]
+Repository = "https://github.com/haiyuanwan/MLSysBench"
+Documentation = "https://github.com/haiyuanwan/MLSysBench/tree/main/docs"
+
 [project.optional-dependencies]
 yaml = ["PyYAML>=6"]
 test = ["pytest>=8"]
@@ -24,3 +31,7 @@ hpo = [
 
 [tool.setuptools.packages.find]
 include = ["mlsysbench*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

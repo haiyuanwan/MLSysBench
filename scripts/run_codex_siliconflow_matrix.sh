@@ -10,6 +10,15 @@ WALL_TIME_SECONDS="${WALL_TIME_SECONDS:-900}"
 CONTEXT_WINDOW="${CONTEXT_WINDOW:-1048576}"
 MAX_OUTPUT_TOKENS="${MAX_OUTPUT_TOKENS:-131072}"
 THINKING_BUDGET="${THINKING_BUDGET:-32768}"
+ISOLATION="${ISOLATION:-bwrap}"
+
+mkdir -p "$OUTPUT_ROOT"
+
+# The benchmark scaffold is pinned and verified before any model run. CC Switch
+# is a protocol bridge for SiliconFlow; InferenceBench itself invokes Codex
+# directly because its evaluated GPT models use native Codex authentication.
+"$PYTHON_BIN" -m mlsysbench.simai_bench prepare-codex-runtime \
+  > "$OUTPUT_ROOT/runtime-assets.json"
 
 models=(
   "meituan-longcat/LongCat-2.0"
@@ -18,12 +27,11 @@ models=(
   "deepseek-ai/DeepSeek-V4-Pro"
 )
 
-mkdir -p "$OUTPUT_ROOT"
-
 for model in "${models[@]}"; do
   slug="${model//\//__}"
   "$PYTHON_BIN" -m mlsysbench.simai_bench run-cli-agent \
     --task "$TASK" \
+    --agent-mode benchmark \
     --agent-profile codex \
     --model "$model" \
     --context-window "$CONTEXT_WINDOW" \
@@ -31,7 +39,7 @@ for model in "${models[@]}"; do
     --thinking-budget "$THINKING_BUDGET" \
     --max-queries "$MAX_QUERIES" \
     --wall-time-seconds "$WALL_TIME_SECONDS" \
-    --isolation landlock \
+    --isolation "$ISOLATION" \
     --output-dir "$OUTPUT_ROOT/$slug"
 done
 

@@ -10,8 +10,103 @@ from mlsysbench.simai_bench.io import ConfigError, load_structured, resolve_task
 
 
 SUPPORTED_TRACKS = {"simai_gym", "infra_agent", "scale_up"}
+SUPPORTED_TASK_SCHEMA_VERSIONS = {1}
 SUPPORTED_DIRECTIONS = {"maximize", "minimize"}
 SUPPORTED_RUNNERS = {"mock", "vidur"}
+SUPPORTED_SCENARIO_FAMILIES = {
+    "prefill_heavy",
+    "decode_heavy",
+    "high_load",
+    "balanced",
+}
+SUPPORTED_TRANSFERS = {
+    "none",
+    "scale_up",
+    "workload_shift",
+    "load_profile_shift",
+    "network_shift",
+    "hardware_shift",
+}
+SUPPORTED_STARTING_POINTS = {
+    "from_scratch",
+    "framework_default",
+    "expert_template",
+}
+SCENARIO_PROFILES = {
+    "prefill_heavy": {"short_prompt", "long_prompt"},
+    "decode_heavy": {"short_output", "long_output"},
+    "high_load": {"burst", "poisson", "constant"},
+    "balanced": {"mixed_prompt_output", "mixed_concurrency"},
+}
+SCENARIO_OBJECTIVES = {
+    "prefill_heavy": {
+        ("p99_ttft_ms", "minimize"),
+        ("goodput_rps", "maximize"),
+    },
+    "decode_heavy": {
+        ("p99_tbt_ms", "minimize"),
+        ("goodput_rps", "maximize"),
+    },
+    "high_load": {
+        ("throughput_rps", "maximize"),
+        ("goodput_rps", "maximize"),
+    },
+    "balanced": {
+        ("goodput_rps", "maximize"),
+    },
+}
+
+
+@dataclass(frozen=True)
+class ScenarioSpec:
+    family: str
+    transfer: str
+    starting_point: str
+    profiles: tuple[str, ...]
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "ScenarioSpec":
+        if not isinstance(data, dict):
+            raise ConfigError("scenario must contain an object")
+
+        family = data.get("family")
+        if family not in SUPPORTED_SCENARIO_FAMILIES:
+            raise ConfigError(
+                "scenario.family must be one of "
+                f"{sorted(SUPPORTED_SCENARIO_FAMILIES)}"
+            )
+        transfer = data.get("transfer")
+        if transfer not in SUPPORTED_TRANSFERS:
+            raise ConfigError(
+                f"scenario.transfer must be one of {sorted(SUPPORTED_TRANSFERS)}"
+            )
+        starting_point = data.get("starting_point")
+        if starting_point not in SUPPORTED_STARTING_POINTS:
+            raise ConfigError(
+                "scenario.starting_point must be one of "
+                f"{sorted(SUPPORTED_STARTING_POINTS)}"
+            )
+
+        profiles = data.get("profiles")
+        if not isinstance(profiles, list) or not profiles or not all(
+            isinstance(profile, str) and profile for profile in profiles
+        ):
+            raise ConfigError("scenario.profiles must be a non-empty list of strings")
+        if len(profiles) != len(set(profiles)):
+            raise ConfigError("scenario.profiles must not contain duplicates")
+        unknown_profiles = sorted(set(profiles) - SCENARIO_PROFILES[family])
+        if unknown_profiles:
+            raise ConfigError(
+                f"scenario family {family!r} does not support profiles: "
+                + ", ".join(unknown_profiles)
+            )
+
+        return cls(
+            family=family,
+            transfer=transfer,
+            starting_point=starting_point,
+            profiles=tuple(profiles),
+        )
 
 
 @dataclass(frozen=True)
@@ -157,9 +252,11 @@ class Constraints:
 @dataclass(frozen=True)
 class TaskSpec:
     task_dir: Path
+    schema_version: int
     task_id: str
     track: str
     description: str
+    scenario: ScenarioSpec
     baseline_config: Path
     allowed_actions: Path
     objective: Objective
@@ -176,6 +273,17 @@ class TaskSpec:
         if not task_file.exists():
             task_file = task_dir / "task.yaml"
         data = load_structured(task_file)
+
+        schema_version = data.get("schema_version")
+        if (
+            not isinstance(schema_version, int)
+            or isinstance(schema_version, bool)
+            or schema_version not in SUPPORTED_TASK_SCHEMA_VERSIONS
+        ):
+            raise ConfigError(
+                "schema_version must be one of "
+                f"{sorted(SUPPORTED_TASK_SCHEMA_VERSIONS)}"
+            )
 
         task_id = data.get("task_id")
         if not isinstance(task_id, str) or not task_id:
@@ -195,9 +303,11 @@ class TaskSpec:
 
         return cls(
             task_dir=task_dir,
+            schema_version=schema_version,
             task_id=task_id,
             track=track,
             description=str(data.get("description", "")),
+            scenario=ScenarioSpec.from_dict(data.get("scenario")),
             baseline_config=resolve_task_path(task_dir, data["baseline_config"]),
             allowed_actions=resolve_task_path(task_dir, data["allowed_actions"]),
             objective=Objective.from_dict(data["objective"]),

@@ -1,7 +1,14 @@
 {
+  "schema_version": 1,
   "task_id": "scale_up_mock_scheduler_transfer",
   "track": "scale_up",
   "description": "Explore scheduler and parallelism choices at 8 replicas, then submit a configuration for a hidden 32-replica workload.",
+  "scenario": {
+    "family": "high_load",
+    "transfer": "scale_up",
+    "starting_point": "framework_default",
+    "profiles": ["burst", "poisson", "constant"]
+  },
   "baseline_config": "baseline_config.json",
   "allowed_actions": "allowed_actions.json",
   "objective": {
