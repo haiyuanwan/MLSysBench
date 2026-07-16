@@ -7,6 +7,7 @@ from vidur.config import (
     LinearRegressionExecutionTimePredictorConfig,
     MetricsConfig,
     ReplicaConfig,
+    SimulationConfig,
 )
 from vidur.execution_time_predictor.sklearn_execution_time_predictor import (
     SklearnExecutionTimePredictor,
@@ -20,6 +21,7 @@ class LinearRegressionExecutionTimePredictor(SklearnExecutionTimePredictor):
         replica_config: ReplicaConfig,
         replica_scheduler_config: BaseReplicaSchedulerConfig,
         metrics_config: MetricsConfig,
+        simulation_config: SimulationConfig,
     ) -> None:
         # will trigger model training
         super().__init__(
@@ -27,6 +29,7 @@ class LinearRegressionExecutionTimePredictor(SklearnExecutionTimePredictor):
             replica_config=replica_config,
             replica_scheduler_config=replica_scheduler_config,
             metrics_config=metrics_config,
+            simulation_config=simulation_config,
         )
 
     def _get_grid_search_params(self):

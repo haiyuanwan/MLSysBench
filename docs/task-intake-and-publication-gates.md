@@ -8,13 +8,21 @@ must prevent it from being presented above its evidence level.
 
 | `publication_status` | Intended use | Minimum evidence |
 |---|---|---|
+| `intake` | Selected external source and task construction | Pinned source revision, license, contamination cutoff, and explicit blockers; no result claim |
 | `fixture` | Unit tests, protocol demos, agent debugging | Deterministic baseline replay and explicit limitations |
 | `pilot` | Internal model/task iteration | External source revision, license, validator, repeated measurements; calibration may still be incomplete but must be disclosed |
 | `candidate` | Paper main table or public leaderboard | External source, independent/maintainer validation, calibrated or real-hardware final evaluation, all gates below |
 
 Schema validation rejects a hand-authored task whose status is not `fixture`,
 and rejects a `candidate` whose calibration is only `uncalibrated` or
-`proxy_only`.
+`proxy_only`. A `calibrated` candidate must also reference an auditable
+`calibration_bundle`; a `real_hardware` candidate must reference
+`real_hardware_evidence`. The status string alone is not evidence.
+
+`intake` is reserved for externally grounded work in progress. It allows the
+runnable package to exist before a validator has reviewed it, but it cannot be
+used in a paper table or leaderboard and it does not waive any pilot/candidate
+gate.
 
 ## Required intake record
 
@@ -98,6 +106,9 @@ simulation and on the target hardware. The checked-in summary must include:
 `hardware_proxy` exists only to test multi-fidelity accounting. It must never
 be labeled as a GPU measurement. A candidate becomes `calibrated` only when the
 relevant decision boundary—not merely one baseline point—has been checked.
+The task validator requires at least three paired configurations, at least
+three hardware repeats per configuration, SHA-256 references to raw artifacts,
+and explicit supported/unsupported decision regions.
 
 ## Anti-contamination split
 

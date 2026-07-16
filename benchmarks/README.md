@@ -1,5 +1,9 @@
 # Result Catalog
 
+Upstream source selection is recorded under [`intake/`](intake/) before a
+candidate is promoted into a runnable task. Intake status is not publication
+status.
+
 This directory stores compact, reviewed evidence. Raw trajectories, simulator
 outputs, caches, downloaded runtimes, and temporary workspaces belong under the
 ignored `runs/` directory.
@@ -36,6 +40,12 @@ The directory contains the paired-measurement input format for
 documentation, not simulator-fidelity evidence. Real bundles must retain
 hardware repeats and artifact hashes and report error, rank correlation, top-k
 overlap, pairwise decision agreement, and measurement variance.
+
+## `matrices/`
+
+The directory documents the declarative `run-matrix` format. Its checked-in
+manifest is a synthetic protocol example, not result evidence. Runtime cell
+manifests, logs, trajectories, and status records remain under ignored `runs/`.
 
 ## Admission rules
 

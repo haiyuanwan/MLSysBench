@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "candidate_id": "azure2023_vllm_chunked_prefill",
+  "selection_status": "selected",
+  "selected_on": "2026-07-16",
+  "intended_track": "simai_gym",
+  "task_hypothesis": "Tune chunked-prefill scheduling under a long-prefill code trace, then preserve latency and goodput under a higher-QPS conversation-domain shift.",
+  "upstream_change": {
+    "repository": "https://github.com/vllm-project/vllm",
+    "license": "Apache-2.0",
+    "rfc_url": "https://github.com/vllm-project/vllm/issues/3130",
+    "base_revision": "1d7c940d74f4923f7507725598bcd08f0f1dbd2d",
+    "scheduler_pr": {
+      "url": "https://github.com/vllm-project/vllm/pull/3853",
+      "merge_revision": "18de88348954b7e535a62c0b7e55004f253e9f21",
+      "parent_revision": "1d7c940d74f4923f7507725598bcd08f0f1dbd2d"
+    },
+    "e2e_pr": {
+      "url": "https://github.com/vllm-project/vllm/pull/3884",
+      "merge_revision": "67b4221a61ace91a79aff507df0a95a01978300e",
+      "parent_revision": "63e7176f265be43dcc425f5ab4ab45c90234f5c3"
+    },
+    "expert_revision": "67b4221a61ace91a79aff507df0a95a01978300e",
+    "scope_note": "PR 3853 is scheduler-only. PR 3884 is the first upstream merge explicitly described as end-to-end chunked prefill and is therefore the expert boundary."
+  },
+  "trace_source": {
+    "repository": "https://github.com/Azure/AzurePublicDataset",
+    "revision": "207bed67dd10090b28ad4f745b2cfd41a11aace4",
+    "description_url": "https://github.com/Azure/AzurePublicDataset/blob/207bed67dd10090b28ad4f745b2cfd41a11aace4/AzureLLMInferenceDataset2023.md",
+    "license": "CC-BY-4.0",
+    "original_schema": ["TIMESTAMP", "ContextTokens", "GeneratedTokens"],
+    "content_removed_by_source": true,
+    "traces": {
+      "code": {
+        "raw_url": "https://raw.githubusercontent.com/Azure/AzurePublicDataset/207bed67dd10090b28ad4f745b2cfd41a11aace4/data/AzureLLMInferenceTrace_code.csv",
+        "raw_sha256": "54e9a6d2a4bd06ba1e060304b900abbc74cbea53de96506e60fe5bb4f2277fb6",
+        "processed_path": "third_party/SimAI/vidur-alibabacloud/data/processed_traces/splitwise_code.csv",
+        "processed_sha256": "f266b907d109d471c61283ab69771c17ad79a18b33ff6e96aa546346f52767a6",
+        "records": 8819,
+        "start_timestamp": "2023-11-16T18:17:03.979960",
+        "end_timestamp": "2023-11-16T19:14:19.928016",
+        "native_qps": 2.5667,
+        "context_tokens_p50": 1469,
+        "context_tokens_p95": 7302,
+        "generated_tokens_p50": 13,
+        "generated_tokens_p95": 90
+      },
+      "conversation": {
+        "raw_url": "https://raw.githubusercontent.com/Azure/AzurePublicDataset/207bed67dd10090b28ad4f745b2cfd41a11aace4/data/AzureLLMInferenceTrace_conv.csv",
+        "raw_sha256": "2f1e5b666d4e3055fdbba98598ce2ec307767b9064e03e2fa46676dbcc7d0bf8",
+        "processed_path": "third_party/SimAI/vidur-alibabacloud/data/processed_traces/splitwise_conv.csv",
+        "processed_sha256": "439e4138b7e384f316de614c071f7162be05b8af0cef866f82faacd1b0472249",
+        "records": 19366,
+        "start_timestamp": "2023-11-16T18:15:46.680590",
+        "end_timestamp": "2023-11-16T19:14:08.402527",
+        "native_qps": 5.5304,
+        "context_tokens_p50": 1020,
+        "context_tokens_p95": 4083,
+        "generated_tokens_p50": 129,
+        "generated_tokens_p95": 451
+      }
+    },
+    "transformation": "Subtract the first timestamp to obtain arrived_at seconds and rename token columns to num_prefill_tokens and num_decode_tokens. Existing Vidur files preserve every record; floating-point timestamp spellings are compared numerically.",
+    "known_provenance_issue": "The source description says the sample was collected on 2023-11-11, while every released CSV timestamp is on 2023-11-16. This must be clarified by the dataset maintainer before promotion."
+  },
+  "candidate_comparison": [
+    {
+      "name": "Azure 2023 code development plus conversation shift",
+      "decision": "selected",
+      "reason": "The code trace has very long prefills and short decodes, while the conversation trace raises arrival rate and decode length. The pair exercises the mechanism and a plausible counterexample/domain shift."
+    },
+    {
+      "name": "Azure 2023 conversation-only replay",
+      "decision": "reserve",
+      "reason": "It is a strong production replay but offers a weaker transfer question and makes one fixed chunk-size recipe easier to overfit."
+    },
+    {
+      "name": "vLLM PR 3853 patch reconstruction only",
+      "decision": "rejected_for_first_candidate",
+      "reason": "PR 3853 is not end-to-end, and a patch-only prompt risks measuring recognition of a historical change instead of an experimental systems decision."
+    },
+    {
+      "name": "Azure 2024 DynamoLLM traces",
+      "decision": "reserve_for_second_candidate",
+      "reason": "The longer collection window is attractive, but it changes the systems question toward cluster allocation and should not be mixed into the first scheduler candidate."
+    }
+  ],
+  "intended_split": {
+    "development_domain": "AzureLLMInferenceTrace_code.csv rows [2048:2176] for interaction and [2048:3072] for confirmation at native timing; full trace reserved for promotion",
+    "final_domain": "AzureLLMInferenceTrace_conv.csv rows [8192:8448] for interaction and [8192:10240] for confirmation at native timing; full trace and low-load counterexample remain promotion gates",
+    "blindness_limit": "Both upstream traces are public. Final selectors and hardware repetitions can be evaluator-private, but the source data cannot honestly be called secret.",
+    "leakage_control": "Do not expose the expert configuration as an answer; evaluate multiple load profiles and require a single submitted configuration or policy to transfer."
+  },
+  "promotion_gates": {
+    "trace_transform_verified": true,
+    "upstream_revisions_pinned": true,
+    "runnable_task_constructed": false,
+    "baseline_reproduced_three_times": false,
+    "expert_reproduced_three_times": false,
+    "independent_validator": false,
+    "real_hardware_calibration": false,
+    "complete_baseline_ladder": false,
+    "human_expert_baseline": false
+  }
+}

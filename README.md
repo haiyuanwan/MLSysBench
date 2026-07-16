@@ -156,6 +156,9 @@ fixture validates the code-artifact protocol, not Vidur or hardware fidelity.
 | `run-agent` | Generate and evaluate a one-shot model submission |
 | `run-agent-loop` | Run a measured multi-step optimization trajectory |
 | `search` | Run grid, random, TPE, or SMAC3 under a matched budget |
+| `validate-baseline-ladder` | Validate four named tiers, provenance, matched budgets, and human-expert records |
+| `run-baseline-ladder` | Replay static tiers and every declared matched-search seed |
+| `run-matrix` | Plan, execute, and resume a declarative experiment matrix |
 | `aggregate-results` | Aggregate run validity, uncertainty, transfer behavior, process metrics, and cost |
 | `analyze-calibration` | Compare paired simulator and repeated hardware measurements |
 | `run-cli-agent` | Run a filesystem-capable agent in a public workspace |
@@ -252,6 +255,8 @@ Checked-in result summaries are separated by intent:
   baseline metadata;
 - [`benchmarks/protocol/`](benchmarks/protocol/) contains harness experiments,
   including synthetic fixtures with explicit caveats;
+- [`benchmarks/matrices/`](benchmarks/matrices/) contains the declarative matrix
+  format and a synthetic protocol example;
 - `runs/` is ignored and contains local trajectories, raw simulator output,
   isolated workspaces, and runtime assets.
 
@@ -274,8 +279,10 @@ Implementation proceeds in this order:
 1. canonical prefill-heavy, decode-heavy, high-load, and balanced scenarios
    (implemented for protocol fixtures);
 2. paired public development and shifted final workloads;
-3. naïve, framework-default, expert, and matched-search baselines;
-4. repeated run-matrix execution and aggregate reporting;
+3. naïve, framework-default, expert, and matched-search baselines (contract and
+   replay implemented; real candidate evidence pending);
+4. repeated run-matrix execution and aggregate reporting (local resumable
+   orchestration implemented; publication matrix and paired reporting pending);
 5. fresh-container final replay;
 6. from-scratch/default/expert-template starting-point ablations;
 7. simulator-to-hardware calibration;

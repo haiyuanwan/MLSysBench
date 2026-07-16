@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "matrix_id": "synthetic_protocol_example",
+  "tasks": [
+    {
+      "id": "scale_transfer",
+      "path": "../../tasks/scale_up/mock_scale_transfer",
+      "starting_point": "framework_default"
+    }
+  ],
+  "models": [
+    {"id": "non_agent", "name": null},
+    {
+      "id": "longcat_2",
+      "name": "meituan-longcat/LongCat-2.0",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "context_window": 1048576,
+      "max_output_tokens": 131072,
+      "thinking_budget": 32768
+    }
+  ],
+  "scaffolds": [
+    {
+      "id": "random_full",
+      "kind": "search",
+      "method": "random",
+      "models": ["non_agent"]
+    },
+    {
+      "id": "codex_ccswitch",
+      "kind": "cli_agent",
+      "agent_profile": "codex",
+      "agent_mode": "benchmark",
+      "isolation": "bwrap",
+      "models": ["longcat_2"]
+    }
+  ],
+  "budgets": [
+    {"id": "matched_5", "max_queries": 5, "wall_time_seconds": 900}
+  ],
+  "seeds": [0, 1, 2],
+  "repeats": 3
+}

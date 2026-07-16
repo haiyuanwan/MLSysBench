@@ -1,0 +1,14 @@
+{
+  "replica_scheduler_config_type": {
+    "type": "str",
+    "choices": ["vllm", "sarathi"]
+  },
+  "sarathi_scheduler_config_batch_size_cap": {
+    "type": "int",
+    "choices": [64, 128, 256]
+  },
+  "sarathi_scheduler_config_chunk_size": {
+    "type": "int",
+    "choices": [256, 512, 768, 1024, 2048]
+  }
+}

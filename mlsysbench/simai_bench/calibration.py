@@ -4,11 +4,109 @@ from __future__ import annotations
 
 import itertools
 import math
+import re
 import statistics
 from pathlib import Path
 from typing import Any
 
 from mlsysbench.simai_bench.io import ConfigError, load_structured
+from mlsysbench.simai_bench.schema import TaskSpec
+
+
+_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def validate_task_calibration(task: TaskSpec) -> dict[str, Any]:
+    """Validate that a calibrated candidate points to auditable paired data."""
+
+    if task.calibration_bundle is None:
+        raise ConfigError("calibrated publication candidate requires calibration_bundle")
+    if not task.calibration_bundle.is_file():
+        raise ConfigError(f"calibration bundle does not exist: {task.calibration_bundle}")
+    payload = load_structured(task.calibration_bundle)
+    if not isinstance(payload, dict):
+        raise ConfigError("calibration bundle must contain an object")
+    if payload.get("schema_version") != 1:
+        raise ConfigError("calibration bundle schema_version must be 1")
+    if payload.get("task_id") != task.task_id:
+        raise ConfigError("calibration bundle task_id does not match task")
+    for field in ("task_revision", "warmup_policy"):
+        if not isinstance(payload.get(field), str) or not payload[field]:
+            raise ConfigError(f"calibration bundle requires {field}")
+    for field in ("hardware", "model", "framework", "workload"):
+        value = payload.get(field)
+        if not isinstance(value, dict) or not value:
+            raise ConfigError(f"calibration bundle requires non-empty {field} metadata")
+    seeds = payload.get("seeds")
+    if not isinstance(seeds, list) or not seeds:
+        raise ConfigError("calibration bundle requires a non-empty seeds list")
+    for field in ("supported_regions", "unsupported_regions"):
+        value = payload.get(field)
+        if not isinstance(value, list):
+            raise ConfigError(f"calibration bundle {field} must be a list")
+    if not payload["supported_regions"]:
+        raise ConfigError("calibration bundle must declare at least one supported region")
+    _validate_artifact_hashes(payload.get("raw_artifact_hashes"), "calibration bundle")
+    if payload.get("metric") != task.objective.primary_metric:
+        raise ConfigError("calibration metric does not match task primary metric")
+    if payload.get("direction", "maximize") != task.objective.direction:
+        raise ConfigError("calibration direction does not match task objective")
+
+    report = analyze_calibration(task.calibration_bundle)
+    if report["paired_configurations"] < 3:
+        raise ConfigError("calibration bundle requires at least three paired configurations")
+    incomplete_repeats = [
+        record["config_id"]
+        for record in report["records"]
+        if len(record["hardware_values"]) < 3
+    ]
+    if incomplete_repeats:
+        raise ConfigError(
+            "calibration hardware measurements require at least three repeats for: "
+            + ", ".join(incomplete_repeats)
+        )
+    return report
+
+
+def validate_real_hardware_evidence(task: TaskSpec) -> dict[str, Any]:
+    """Validate evidence metadata for a real-hardware-final candidate."""
+
+    if task.real_hardware_evidence is None:
+        raise ConfigError(
+            "real-hardware publication candidate requires real_hardware_evidence"
+        )
+    if not task.real_hardware_evidence.is_file():
+        raise ConfigError(
+            f"real hardware evidence does not exist: {task.real_hardware_evidence}"
+        )
+    payload = load_structured(task.real_hardware_evidence)
+    if not isinstance(payload, dict):
+        raise ConfigError("real hardware evidence must contain an object")
+    if payload.get("schema_version") != 1:
+        raise ConfigError("real hardware evidence schema_version must be 1")
+    if payload.get("task_id") != task.task_id:
+        raise ConfigError("real hardware evidence task_id does not match task")
+    for field in ("hardware", "model", "framework", "workload"):
+        value = payload.get(field)
+        if not isinstance(value, dict) or not value:
+            raise ConfigError(f"real hardware evidence requires non-empty {field} metadata")
+    repeats = payload.get("repeats")
+    if not isinstance(repeats, int) or isinstance(repeats, bool) or repeats < 3:
+        raise ConfigError("real hardware evidence repeats must be at least 3")
+    _validate_artifact_hashes(payload.get("raw_artifact_hashes"), "real hardware evidence")
+    return payload
+
+
+def _validate_artifact_hashes(value: Any, label: str) -> None:
+    hashes: list[str]
+    if isinstance(value, dict):
+        hashes = list(value.values())
+    elif isinstance(value, list):
+        hashes = value
+    else:
+        raise ConfigError(f"{label} raw_artifact_hashes must be a list or object")
+    if not hashes or not all(isinstance(item, str) and _SHA256.fullmatch(item) for item in hashes):
+        raise ConfigError(f"{label} raw_artifact_hashes must contain SHA-256 values")
 
 
 def analyze_calibration(path: str | Path) -> dict[str, Any]:
@@ -29,6 +127,9 @@ def analyze_calibration(path: str | Path) -> dict[str, Any]:
         raise ConfigError("calibration top_k must be positive")
 
     normalized = [_normalize_record(record, metric) for record in records]
+    config_ids = [record["config_id"] for record in normalized]
+    if len(config_ids) != len(set(config_ids)):
+        raise ConfigError("calibration config_id values must be unique")
     simulator = [record["simulator"] for record in normalized]
     hardware = [record["hardware_mean"] for record in normalized]
     errors = [sim - real for sim, real in zip(simulator, hardware)]

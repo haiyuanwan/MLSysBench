@@ -9,8 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from mlsysbench.simai_bench.baseline_ladder import validate_baseline_ladder
+from mlsysbench.simai_bench.calibration import (
+    validate_real_hardware_evidence,
+    validate_task_calibration,
+)
 from mlsysbench.simai_bench.evaluator import evaluate_changes
-from mlsysbench.simai_bench.io import load_structured, resolve_task_path
+from mlsysbench.simai_bench.io import ConfigError, load_structured, resolve_task_path
 from mlsysbench.simai_bench.runner import change_signature
 from mlsysbench.simai_bench.schema import (
     SCENARIO_OBJECTIVES,
@@ -51,6 +56,19 @@ def validate_task(
 
     _validate_scenario(task, errors, warnings, details)
     _validate_provenance(task, errors, warnings, details)
+    is_candidate = bool(
+        task.provenance and task.provenance.publication_status == "candidate"
+    )
+    if task.baseline_ladder is not None:
+        ladder = validate_baseline_ladder(
+            task.task_dir,
+            replay_static=task.runner.type in {"mock", "python_code"} or run_real_baseline,
+        )
+        details["baseline_ladder"] = ladder.details
+        errors.extend(ladder.errors)
+        warnings.extend(ladder.warnings)
+    elif is_candidate:
+        errors.append("publication candidates must declare baseline_ladder")
 
     baseline_config = task.load_baseline_config()
     allowed_actions = task.load_allowed_actions()
@@ -272,15 +290,30 @@ def _validate_provenance(
         ]
         if missing:
             errors.append("external provenance is missing: " + ", ".join(missing))
-        if not provenance.validators:
-            errors.append("external provenance requires at least one validator")
+        if provenance.publication_status in {"pilot", "candidate"} and not provenance.validators:
+            errors.append("external pilot/candidate provenance requires at least one validator")
         if provenance.publication_status != "fixture" and not provenance.contamination_cutoff:
-            errors.append("external pilot/candidate tasks require a contamination cutoff")
+            errors.append("external intake/pilot/candidate tasks require a contamination cutoff")
     if provenance.publication_status == "candidate" and provenance.calibration_status not in {
         "calibrated",
         "real_hardware",
     }:
         errors.append("publication candidates require calibrated or real-hardware evidence")
+    elif provenance.publication_status == "candidate":
+        try:
+            if provenance.calibration_status == "calibrated":
+                details["calibration_report"] = validate_task_calibration(task)
+            else:
+                evidence = validate_real_hardware_evidence(task)
+                details["real_hardware_evidence"] = {
+                    "repeats": evidence["repeats"],
+                    "hardware": evidence["hardware"],
+                    "model": evidence["model"],
+                    "framework": evidence["framework"],
+                    "workload": evidence["workload"],
+                }
+        except ConfigError as exc:
+            errors.append(str(exc))
     if provenance.publication_status == "pilot" and provenance.calibration_status == "uncalibrated":
         warnings.append("pilot task is not simulator-calibrated")
 

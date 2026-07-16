@@ -1,0 +1,16 @@
+{
+  "scenario_family": "prefill_heavy",
+  "profiles": ["short_prompt", "long_prompt"],
+  "source_domain": "Azure LLM inference 2023 code",
+  "source_revision": "207bed67dd10090b28ad4f745b2cfd41a11aace4",
+  "raw_sha256": "54e9a6d2a4bd06ba1e060304b900abbc74cbea53de96506e60fe5bb4f2277fb6",
+  "processed_sha256": "50844275b037bebfc724c88bac9969f1a65d9dec6426e4b367f267a4eb181dec",
+  "confirmation_sha256": "5ac7118362c4be91fa7028fda16a8bf4a010c1502cfa1c6dedd691a149657be2",
+  "source_processed_sha256": "f266b907d109d471c61283ab69771c17ad79a18b33ff6e96aa546346f52767a6",
+  "source_slice": [2048, 2176],
+  "confirmation_source_slice": [2048, 3072],
+  "records": 128,
+  "config_overrides": {
+    "trace_request_generator_config_trace_file": "../../../tasks/simai_gym/azure2023_chunked_prefill_transfer/public/traces/code_window_2048_2175.csv"
+  }
+}

@@ -180,8 +180,11 @@ Pilot work uses at least three independent repeats per cell; paper claims use
 enough repeats for confidence intervals and paired task-level tests. Final
 workloads contain multiple seeds or load points.
 
-The planned `run-matrix` command should write one immutable run manifest per
-cell. The planned `aggregate-results` command should report:
+The implemented `run-matrix` command writes one immutable cell manifest plus a
+separate mutable status record per cell, resumes completed cells, retains
+failures, and rejects credentials embedded in matrix manifests. Starting point
+is currently inherited from each task definition; matched starting-point
+variants remain Stage 6 work. `aggregate-results` reports:
 
 - mean, median, spread, and confidence interval;
 - validity, SLO, quality, integrity, and reachability pass rates;

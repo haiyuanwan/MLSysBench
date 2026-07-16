@@ -9,6 +9,10 @@ import sys
 from pathlib import Path
 
 from mlsysbench.simai_bench.aggregation import aggregate_runs
+from mlsysbench.simai_bench.baseline_ladder import (
+    run_baseline_ladder,
+    validate_baseline_ladder,
+)
 from mlsysbench.simai_bench.calibration import analyze_calibration
 from mlsysbench.simai_bench.agent_runner import run_agent_loop, run_agent_once
 from mlsysbench.simai_bench.cli_agent import run_cli_agent
@@ -20,6 +24,7 @@ from mlsysbench.simai_bench.codex_ccswitch import (
 from mlsysbench.simai_bench.evaluator import evaluate_and_write, evaluate_submission
 from mlsysbench.simai_bench.io import ConfigError, write_json
 from mlsysbench.simai_bench.model_client import load_dotenv, make_model_client
+from mlsysbench.simai_bench.run_matrix import plan_matrix, run_matrix
 from mlsysbench.simai_bench.search import run_search
 from mlsysbench.simai_bench.task_validation import validate_task
 
@@ -131,6 +136,35 @@ def main() -> None:
     )
     calibration_parser.add_argument("--input", required=True)
     calibration_parser.add_argument("--output", help="Optional calibration report JSON path")
+
+    ladder_validate_parser = subparsers.add_parser(
+        "validate-baseline-ladder",
+        help="Validate four-tier and human-expert baseline declarations",
+    )
+    ladder_validate_parser.add_argument("--task", required=True)
+    ladder_validate_parser.add_argument("--output", help="Optional validation report JSON path")
+    ladder_validate_parser.add_argument(
+        "--replay-static",
+        action="store_true",
+        help="Replay naive, framework-default, and expert submissions",
+    )
+
+    ladder_run_parser = subparsers.add_parser(
+        "run-baseline-ladder",
+        help="Replay static baselines and all declared matched-search runs",
+    )
+    ladder_run_parser.add_argument("--task", required=True)
+    ladder_run_parser.add_argument("--output-dir", required=True)
+
+    matrix_parser = subparsers.add_parser(
+        "run-matrix",
+        help="Plan or execute a declarative, resumable experiment matrix",
+    )
+    matrix_parser.add_argument("--manifest", required=True)
+    matrix_parser.add_argument("--output-dir", help="Required unless --dry-run is used")
+    matrix_parser.add_argument("--dry-run", action="store_true")
+    matrix_parser.add_argument("--max-cells", type=int)
+    matrix_parser.add_argument("--retry-failed", action="store_true")
 
     runtime_parser = subparsers.add_parser(
         "prepare-codex-runtime",
@@ -312,6 +346,35 @@ def main() -> None:
         if args.output:
             write_json(args.output, calibration)
         print(json.dumps(calibration, indent=2, sort_keys=True))
+    elif args.command == "validate-baseline-ladder":
+        validation = validate_baseline_ladder(
+            args.task,
+            replay_static=args.replay_static,
+        )
+        payload = validation.to_dict()
+        if args.output:
+            write_json(args.output, payload)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        if not validation.valid:
+            raise SystemExit(1)
+    elif args.command == "run-baseline-ladder":
+        result = run_baseline_ladder(args.task, args.output_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if not result["complete"]:
+            raise SystemExit(1)
+    elif args.command == "run-matrix":
+        if args.dry_run:
+            result = {**plan_matrix(args.manifest).to_dict(), "dry_run": True}
+        else:
+            if not args.output_dir:
+                raise ConfigError("run-matrix requires --output-dir unless --dry-run is used")
+            result = run_matrix(
+                args.manifest,
+                args.output_dir,
+                max_cells=args.max_cells,
+                retry_failed=args.retry_failed,
+            )
+        print(json.dumps(result, indent=2, sort_keys=True))
     elif args.command == "prepare-codex-runtime":
         manifest = install_runtime_assets(
             asset_dir=args.asset_dir,

@@ -67,6 +67,9 @@ def to_cli_args(config: dict[str, Any]) -> list[str]:
         value = config[key]
         if isinstance(value, bool):
             args.append(f"--{key}" if value else f"--no-{key}")
+        elif isinstance(value, (list, tuple)):
+            args.append(f"--{key}")
+            args.extend(str(item) for item in value)
         elif value is None:
             continue
         else:

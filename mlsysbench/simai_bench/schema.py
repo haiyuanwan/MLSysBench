@@ -46,7 +46,7 @@ SUPPORTED_SOURCE_TYPES = {
     "real_trace",
     "maintainer_blind",
 }
-SUPPORTED_PUBLICATION_STATUSES = {"fixture", "pilot", "candidate"}
+SUPPORTED_PUBLICATION_STATUSES = {"intake", "fixture", "pilot", "candidate"}
 SUPPORTED_CALIBRATION_STATUSES = {
     "uncalibrated",
     "proxy_only",
@@ -495,6 +495,9 @@ class TaskSpec:
     description: str
     scenario: ScenarioSpec
     baseline_config: Path
+    baseline_ladder: Path | None
+    calibration_bundle: Path | None
+    real_hardware_evidence: Path | None
     allowed_actions: Path
     objective: Objective
     slo: SLO
@@ -531,6 +534,22 @@ class TaskSpec:
         track = data.get("track")
         if track not in SUPPORTED_TRACKS:
             raise ConfigError(f"track must be one of {sorted(SUPPORTED_TRACKS)}")
+        baseline_ladder_value = data.get("baseline_ladder")
+        if baseline_ladder_value is not None and (
+            not isinstance(baseline_ladder_value, str) or not baseline_ladder_value
+        ):
+            raise ConfigError("baseline_ladder must be a non-empty path string")
+        calibration_bundle_value = data.get("calibration_bundle")
+        if calibration_bundle_value is not None and (
+            not isinstance(calibration_bundle_value, str) or not calibration_bundle_value
+        ):
+            raise ConfigError("calibration_bundle must be a non-empty path string")
+        real_hardware_evidence_value = data.get("real_hardware_evidence")
+        if real_hardware_evidence_value is not None and (
+            not isinstance(real_hardware_evidence_value, str)
+            or not real_hardware_evidence_value
+        ):
+            raise ConfigError("real_hardware_evidence must be a non-empty path string")
 
         hidden_data = data.get("hidden") or {}
         if "baseline_metrics" not in hidden_data:
@@ -568,6 +587,21 @@ class TaskSpec:
             description=str(data.get("description", "")),
             scenario=ScenarioSpec.from_dict(data.get("scenario")),
             baseline_config=resolve_task_path(task_dir, data["baseline_config"]),
+            baseline_ladder=(
+                resolve_task_path(task_dir, baseline_ladder_value)
+                if baseline_ladder_value
+                else None
+            ),
+            calibration_bundle=(
+                resolve_task_path(task_dir, calibration_bundle_value)
+                if calibration_bundle_value
+                else None
+            ),
+            real_hardware_evidence=(
+                resolve_task_path(task_dir, real_hardware_evidence_value)
+                if real_hardware_evidence_value
+                else None
+            ),
             allowed_actions=resolve_task_path(task_dir, data["allowed_actions"]),
             objective=Objective.from_dict(data["objective"]),
             slo=SLO.from_dict(data.get("slo")),

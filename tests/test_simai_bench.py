@@ -12,8 +12,9 @@ from unittest.mock import patch
 
 from mlsysbench.simai_bench.agent_runner import run_agent_loop, run_agent_once
 from mlsysbench.simai_bench.aggregation import aggregate_runs
-from mlsysbench.simai_bench.calibration import analyze_calibration
-from mlsysbench.simai_bench.actions import validate_changes
+from mlsysbench.simai_bench.baseline_ladder import validate_baseline_ladder
+from mlsysbench.simai_bench.calibration import analyze_calibration, validate_task_calibration
+from mlsysbench.simai_bench.actions import to_cli_args, validate_changes
 from mlsysbench.simai_bench.cli_agent import (
     _wrap_with_bwrap,
     prepare_public_workspace,
@@ -39,6 +40,7 @@ from mlsysbench.simai_bench.model_client import (
     make_model_client,
 )
 from mlsysbench.simai_bench.runner import VidurRunner, detect_aicb_failure_or_default
+from mlsysbench.simai_bench.run_matrix import plan_matrix, run_matrix
 from mlsysbench.simai_bench.schema import MetricGate, RunnerSpec, SLO, ScenarioSpec, TaskSpec
 from mlsysbench.simai_bench.search import run_search
 from mlsysbench.simai_bench.task_validation import validate_task
@@ -47,6 +49,7 @@ from mlsysbench.simai_bench.task_validation import validate_task
 ROOT = Path(__file__).resolve().parents[1]
 TASK = ROOT / "tasks" / "simai_gym" / "l1_scheduler_choice"
 REAL_TASK = ROOT / "tasks" / "simai_gym" / "qwen3_next_aicb_benchmark"
+AZURE_INTAKE_TASK = ROOT / "tasks" / "simai_gym" / "azure2023_chunked_prefill_transfer"
 SCALE_TASK = ROOT / "tasks" / "scale_up" / "mock_scale_transfer"
 CODE_TASK = ROOT / "tasks" / "code_scheduler" / "workload_aware_chunked_prefill"
 PATCH_TRANSFER_TASK = ROOT / "tasks" / "patch_transfer" / "adaptive_chunk_patch"
@@ -62,6 +65,24 @@ SUBMISSION = ROOT / "submissions" / "examples" / "sarathi_scheduler.json"
 
 
 class SimAIBenchTest(unittest.TestCase):
+    def test_cli_args_expand_list_valued_predictor_parameters(self):
+        self.assertEqual(
+            to_cli_args({"predictor_degrees": [1, 2]}),
+            ["--predictor_degrees", "1", "2"],
+        )
+
+    def test_external_intake_can_precede_independent_validation(self):
+        task = TaskSpec.load(AZURE_INTAKE_TASK)
+        result = validate_task(AZURE_INTAKE_TASK)
+
+        self.assertEqual(task.provenance.publication_status, "intake")
+        self.assertEqual(task.provenance.validators, ())
+        self.assertTrue(result.valid, result.errors)
+        self.assertNotEqual(
+            task.load_eval_config_overrides("development"),
+            task.load_eval_config_overrides("final"),
+        )
+
     def test_example_submission_scores_against_baseline(self):
         result = evaluate_submission(TASK, SUBMISSION)
 
@@ -548,6 +569,133 @@ class SimAIBenchTest(unittest.TestCase):
         self.assertFalse(validation.valid)
         self.assertTrue(any("contamination cutoff" in error for error in validation.errors))
         self.assertTrue(any("calibrated or real-hardware" in error for error in validation.errors))
+        self.assertIn("publication candidates must declare baseline_ladder", validation.errors)
+
+    def test_baseline_ladder_contract_validates_and_replays_static_tiers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_copy = Path(tmpdir) / "task"
+            shutil.copytree(SCALE_TASK, task_copy)
+            baselines = task_copy / "baselines"
+            baselines.mkdir()
+            for name, changes in {
+                "naive": {},
+                "framework_default": {},
+                "expert_recipe": {
+                    "replica_config_tensor_parallel_size": 4,
+                    "replica_scheduler_config_type": "sarathi",
+                    "sarathi_scheduler_config_chunk_size": 1024,
+                },
+            }.items():
+                (baselines / f"{name}.json").write_text(
+                    json.dumps({"changes": changes}), encoding="utf-8"
+                )
+            ladder = {
+                "schema_version": 1,
+                "score_denominator": "framework_default",
+                "measurement": {"repeats": 3},
+                "tiers": {
+                    "naive": {
+                        "submission": "baselines/naive.json",
+                        "provenance": {"description": "deliberately untuned"},
+                    },
+                    "framework_default": {
+                        "submission": "baselines/framework_default.json",
+                        "provenance": {
+                            "description": "pinned framework default",
+                            "source_revision": "fixture-revision",
+                        },
+                    },
+                    "expert_recipe": {
+                        "submission": "baselines/expert_recipe.json",
+                        "provenance": {
+                            "description": "curated strong recipe",
+                            "source_url": "https://example.com/expert",
+                            "source_revision": "fixture-revision",
+                            "author": "fixture author",
+                        },
+                    },
+                    "matched_search": {
+                        "methods": ["grid", "random", "tpe", "smac"],
+                        "grid_applicable": True,
+                        "scope": "full",
+                        "query_budget": 5,
+                        "wall_time_seconds": 60,
+                        "seeds": [0, 1, 2],
+                    },
+                },
+            }
+            (task_copy / "baseline_ladder.json").write_text(
+                json.dumps(ladder), encoding="utf-8"
+            )
+            task_path = task_copy / "task.json"
+            task_payload = json.loads(task_path.read_text(encoding="utf-8"))
+            task_payload["baseline_ladder"] = "baseline_ladder.json"
+            task_path.write_text(json.dumps(task_payload), encoding="utf-8")
+
+            validation = validate_baseline_ladder(task_copy, replay_static=True)
+
+        self.assertTrue(validation.valid, validation.errors)
+        self.assertIn("baseline ladder has no human_expert record", validation.warnings)
+        self.assertTrue(
+            validation.details["static_tiers"]["expert_recipe"]["replay"]["valid"]
+        )
+
+    def test_run_matrix_expands_executes_and_resumes_immutable_cells(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest_path = root / "matrix.json"
+            manifest = {
+                "schema_version": 1,
+                "matrix_id": "search_smoke",
+                "tasks": [{"id": "scale", "path": str(SCALE_TASK)}],
+                "models": [{"id": "non_agent", "name": None}],
+                "scaffolds": [
+                    {
+                        "id": "random",
+                        "kind": "search",
+                        "method": "random",
+                        "models": ["non_agent"],
+                    }
+                ],
+                "budgets": [
+                    {"id": "q1", "max_queries": 1, "wall_time_seconds": 30}
+                ],
+                "seeds": [0, 1],
+                "repeats": 2,
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            plan = plan_matrix(manifest_path)
+            output = root / "runs"
+            first = run_matrix(manifest_path, output, max_cells=1)
+            first_cell = plan.cells[0]
+            first_status_path = output / "cells" / first_cell.cell_id / "cell_status.json"
+            first_status = json.loads(first_status_path.read_text(encoding="utf-8"))
+            second = run_matrix(manifest_path, output, max_cells=1)
+            resumed_status = json.loads(first_status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(plan.cells), 4)
+        self.assertEqual(first["status_counts"], {"completed": 1, "deferred": 3})
+        self.assertEqual(second["status_counts"]["completed"], 2)
+        self.assertEqual(second["status_counts"]["deferred"], 2)
+        self.assertEqual(second["cells"][0]["source"], "resumed_completed")
+        self.assertEqual(first_status["attempt"], 1)
+        self.assertEqual(resumed_status["attempt"], 1)
+
+    def test_run_matrix_rejects_embedded_credentials(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "matrix.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "matrix_id": "unsafe",
+                        "api_key": "must-not-be-here",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ConfigError, "must not contain secret"):
+                plan_matrix(path)
 
     def test_custom_metric_gate_blocks_an_otherwise_valid_result(self):
         task = TaskSpec.load(POLICY_TRANSFER_TASK)
@@ -708,6 +856,38 @@ class SimAIBenchTest(unittest.TestCase):
         self.assertEqual(report["pairwise_decision_agreement"], 0.0)
         self.assertEqual(report["top_k_overlap"], 0.0)
         self.assertEqual(report["repeated_hardware_configurations"], 3)
+
+    def test_task_calibration_requires_auditable_metadata_and_repeats(self):
+        payload = {
+            "schema_version": 1,
+            "task_id": "scale_up_mock_scheduler_transfer",
+            "task_revision": "fixture-task-revision",
+            "hardware": {"gpu": "fixture-gpu", "count": 8},
+            "model": {"name": "fixture-model", "revision": "fixture-model-revision"},
+            "framework": {"name": "fixture-framework", "revision": "fixture-revision"},
+            "workload": {"name": "fixture-workload", "sha256": "0" * 64},
+            "seeds": [0, 1, 2],
+            "warmup_policy": "three warmup runs",
+            "raw_artifact_hashes": ["1" * 64],
+            "supported_regions": ["fixture decision region"],
+            "unsupported_regions": [],
+            "metric": "goodput_rps",
+            "direction": "maximize",
+            "top_k": 1,
+            "records": [
+                {"config_id": "a", "simulator": 10.0, "hardware": [9.0, 9.1, 8.9]},
+                {"config_id": "b", "simulator": 9.0, "hardware": [8.0, 8.1, 7.9]},
+                {"config_id": "c", "simulator": 8.0, "hardware": [7.0, 7.1, 6.9]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "calibration.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            task = replace(TaskSpec.load(SCALE_TASK), calibration_bundle=path)
+            report = validate_task_calibration(task)
+
+        self.assertEqual(report["paired_configurations"], 3)
+        self.assertEqual(report["pairwise_decision_agreement"], 1.0)
 
     def test_cli_agent_collects_code_artifact_for_clean_final_replay(self):
         agent_source = (

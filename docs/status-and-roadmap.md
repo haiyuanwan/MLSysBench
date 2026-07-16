@@ -39,11 +39,11 @@ not complete portable reproduction bundles.
 | Scenario-family metadata | Implemented | Required schema, objective/profile validation, public agent context, four fixtures |
 | Bounded scheduler-code protocol | Prototype implemented | Schema v2 source bundle, editable allowlist, clean starter reconstruction, deterministic hidden evaluator |
 | Patch/policy/multi-fidelity protocol | Fixture implemented | Schema-v3 provenance, multi-profile policy simulator, robust/worst/fairness metrics, cost-accounted fidelities |
-| Four-tier baseline ladder | Not implemented | Individual baselines/search exist, not tiered per task |
-| Run matrix and result aggregation | Partial | `aggregate-results` covers failures, bootstrap interval, transfer/process/cost metrics; declarative run-matrix execution remains pending |
+| Four-tier baseline ladder | Contract implemented, evidence missing | Candidate gate, manifest validation, static replay, matched-search replay, and human-expert record checks exist; no real candidate has populated evidence |
+| Run matrix and result aggregation | Partial | Resumable immutable-cell execution and failure-preserving aggregation exist; paired comparisons, leaderboard ingestion, and a publication matrix remain pending |
 | Containerized final replay | Not implemented | Landlock/process separation only |
-| Starting-point ablations | Not implemented | No task/run dimension |
-| Simulator-to-hardware calibration | Analysis implemented, evidence missing | `analyze-calibration` reports error, Spearman/Kendall, top-k, pairwise agreement and hardware CV; no real paired bundle yet |
+| Starting-point ablations | Not implemented | Matrix cells record the task starting point, but matched task variants and ablation execution are absent |
+| Simulator-to-hardware calibration | Analysis and candidate gate implemented, evidence missing | Reports error, Spearman/Kendall, top-k, pairwise agreement and hardware CV; candidate bundles require metadata, hashes, decision regions and repeated pairs, but no real paired bundle exists |
 | Open server/code track | Partial protocol only | Synthetic patch/policy fixtures exist; no arbitrary upstream patch, model-quality gate, or real-hardware score |
 | Continuous integration | Not implemented | No CI workflow checked in |
 
@@ -91,6 +91,11 @@ final specification.
 
 ### Stage 3: baseline ladder
 
+**Status: contract and replay implemented; real evidence absent.** Candidate
+validation now requires a declared ladder and human-expert record. No task has
+yet supplied reproduced upstream expert results or the full matched-search and
+human evidence needed for a paper table.
+
 Add named `naive`, `framework_default`, `expert_recipe`, and `matched_search`
 tiers to every candidate task. Search results distinguish restricted and
 full-space search.
@@ -107,7 +112,11 @@ and identifies the score denominator explicitly.
 
 ### Stage 4: run matrix and aggregation
 
-**Status: aggregation implemented; declarative matrix execution pending.**
+**Status: local orchestration and aggregation implemented; publication use
+remains incomplete.** Matrix cells are deterministic, resumable, immutable in
+specification, and failure preserving. Paired comparisons, leaderboard
+ingestion checks, distributed workers, and an actual repeated publication
+matrix remain pending.
 
 Implement declarative execution over task, model, scaffold, starting point,
 budget, seed, and repeat.

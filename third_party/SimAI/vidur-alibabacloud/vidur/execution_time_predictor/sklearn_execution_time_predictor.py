@@ -1058,88 +1058,27 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
         return predictions
 
     def _predict_for_attention_layer_models(self) -> Dict[str, Any]:
-        predictions = {}
+        # The former implementation eagerly materialized the Cartesian product
+        # of every KV-cache size and every token-sized prefill chunk.  At an 8K
+        # context this exceeds one million rows per process, even though a replay
+        # touches only a small fraction of those keys.  Attention predictions are
+        # now populated on demand by the two execution-time accessors below.
+        # Model training and prediction values are unchanged.
+        return {"attn_prefill": {}, "attn_decode": {}}
 
-        decode_batch_size_range = np.arange(
-            1, self._config.prediction_max_batch_size + 1
-        )
-        decode_kv_cache_size_range = np.arange(
-            0,
-            self._config.prediction_max_tokens_per_request + 1,
-            self._config.kv_cache_prediction_granularity,       # kv cache is stored in blocks, this is the block_size
-        )
-        decode_prefill_chunk_size_range = [0]
-        # 生成所有的组合
-        # Generate all combinations
-        decode_batch_size, decode_kv_cache_size, decode_prefill_chunk_size = zip(
-            *product(
-                decode_batch_size_range,
-                decode_kv_cache_size_range,
-                decode_prefill_chunk_size_range,
+    def _get_or_predict_attention(
+        self,
+        model_name: str,
+        key: Tuple[int, int],
+        feature_names: Tuple[str, str],
+    ) -> float:
+        cache = self._predictions[model_name]
+        if key not in cache:
+            features = pd.DataFrame(
+                [{feature_names[0]: key[0], feature_names[1]: key[1]}]
             )
-        )
-
-        prefill_batch_size_range = [1]
-        prefill_kv_cache_size_range = np.arange(
-            0,
-            self._config.prediction_max_tokens_per_request + 1,
-            self._config.kv_cache_prediction_granularity,
-        )
-        prefill_prefill_chunk_size_range = np.arange(
-            1, self._config.prediction_max_prefill_chunk_size + 1
-        )
-        prefill_batch_size, prefill_kv_cache_size, prefill_prefill_chunk_size = zip(
-            *product(
-                prefill_batch_size_range,
-                prefill_kv_cache_size_range,
-                prefill_prefill_chunk_size_range,
-            )
-        )
-
-        attention_df = pd.DataFrame(
-            {
-                "batch_size": decode_batch_size + prefill_batch_size,
-                "kv_cache_size": decode_kv_cache_size + prefill_kv_cache_size,
-                "prefill_chunk_size": decode_prefill_chunk_size
-                + prefill_prefill_chunk_size,
-            }
-        )
-
-        attention_df["is_decode"] = attention_df["prefill_chunk_size"] == 0
-        attention_df["num_tokens"] = attention_df[
-            ["prefill_chunk_size", "batch_size"]
-        ].max(axis=1)
-        attention_df["prefill_chunk_size_squared"] = (
-            attention_df["prefill_chunk_size"] ** 2
-        )
-
-        prefill_df = attention_df[~attention_df["is_decode"]]
-        decode_df = attention_df[attention_df["is_decode"]]
-        chunked_prefill_df = prefill_df[prefill_df["kv_cache_size"] > 0].copy()
-        chunked_prefill_df["total_prefill_tokens"] = (
-            chunked_prefill_df["kv_cache_size"]
-            + chunked_prefill_df["prefill_chunk_size"]
-        )
-
-        # **2预测prefill attn时间
-        # Predict prefill attention time using kv_cache_size and chunk_size**2
-        predictions["attn_prefill"] = self._get_model_prediction(
-            "attn_prefill",
-            self._models["attn_prefill"],
-            prefill_df[["kv_cache_size", "prefill_chunk_size_squared"]],
-        )
-
-        # 用kv_cache_size和batch_size预测decode attn时间
-        # kv_cache_size是decode + prefill，即枚举上下文的长度
-        # Predict decode attention time using kv_cache_size and batch_size
-        # kv_cache_size is decode + prefill, i.e., enumerating context length
-        predictions["attn_decode"] = self._get_model_prediction(
-            "attn_decode",
-            self._models["attn_decode"],
-            decode_df[["batch_size", "kv_cache_size"]],
-        )
-
-        return predictions
+            cache[key] = float(self._models[model_name].predict(features)[0])
+        return cache[key]
 
     def _predict_from_models(self) -> Dict[str, Any]:
         predictions = self._predict_for_compute_models()    # All-reduce and send-recv are included here.
@@ -1284,9 +1223,12 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
             return 0
         # TODO(tianhao909): add decode output logging
         # TODO(tianhao909): 添加 decode 输出日志
-        return self._predictions["attn_decode"][
-            (decode_batch_size, decode_avg_kv_cache_size)
-        ] * (
+        prediction = self._get_or_predict_attention(
+            "attn_decode",
+            (decode_batch_size, decode_avg_kv_cache_size),
+            ("batch_size", "kv_cache_size"),
+        )
+        return prediction * (
             1
             + self._attention_decode_batching_overhead_fraction
             * int(decode_batch_size > 1)
@@ -1304,9 +1246,12 @@ class SklearnExecutionTimePredictor(BaseExecutionTimePredictor):
         agg_kv_cache_size = sum(kv_cache_sizes)
         agg_prefill_chunk_size = sum([x**2 for x in prefill_chunk_sizes]) ** 0.5
 
-        return self._predictions["attn_prefill"][
-            (agg_kv_cache_size, round(agg_prefill_chunk_size) ** 2)
-        ] * (
+        prediction = self._get_or_predict_attention(
+            "attn_prefill",
+            (agg_kv_cache_size, round(agg_prefill_chunk_size) ** 2),
+            ("kv_cache_size", "prefill_chunk_size_squared"),
+        )
+        return prediction * (
             1
             + self._attention_prefill_batching_overhead_fraction
             * int(len(prefill_params) > 1)

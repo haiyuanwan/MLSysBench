@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "score_denominator": "framework_default",
+  "measurement": {"repeats": 3},
+  "result_bundle": "baselines/baseline_ladder_result.json",
+  "tiers": {
+    "naive": {
+      "submission": "baselines/naive.json",
+      "provenance": {"description": "Valid deliberately untuned reference"}
+    },
+    "framework_default": {
+      "submission": "baselines/framework_default.json",
+      "provenance": {
+        "description": "Unmodified upstream default",
+        "source_revision": "FULL_UPSTREAM_COMMIT"
+      }
+    },
+    "expert_recipe": {
+      "submission": "baselines/expert_recipe.json",
+      "provenance": {
+        "description": "Reproduced expert patch or method",
+        "source_url": "https://github.com/ORG/REPO/pull/NUMBER",
+        "source_revision": "FULL_PARENT_COMMIT",
+        "author": "upstream author or named expert"
+      }
+    },
+    "matched_search": {
+      "methods": ["grid", "random", "tpe", "smac"],
+      "grid_applicable": true,
+      "scope": "full",
+      "query_budget": 20,
+      "wall_time_seconds": 3600,
+      "seeds": [0, 1, 2]
+    }
+  },
+  "human_expert": {
+    "participants": 1,
+    "matched_budget": true,
+    "protocol": "Protocol identifier and instructions used for the matched expert run",
+    "results": "baselines/human_expert_results.json"
+  }
+}

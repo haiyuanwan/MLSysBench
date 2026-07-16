@@ -1,0 +1,16 @@
+{
+  "scenario_family": "prefill_heavy",
+  "profiles": ["short_prompt", "long_prompt"],
+  "source_domain": "Azure LLM inference 2023 conversation",
+  "source_revision": "207bed67dd10090b28ad4f745b2cfd41a11aace4",
+  "raw_sha256": "2f1e5b666d4e3055fdbba98598ce2ec307767b9064e03e2fa46676dbcc7d0bf8",
+  "processed_sha256": "a4172dd6d384afb0915bde7fa3a463295e876d977b074cef5236175bbd97b2d3",
+  "confirmation_sha256": "ca9c9fa26314e7216ec6ca68b24460a6179cb467155605dcf09b4cd19fa9d171",
+  "source_processed_sha256": "439e4138b7e384f316de614c071f7162be05b8af0cef866f82faacd1b0472249",
+  "source_slice": [8192, 8448],
+  "confirmation_source_slice": [8192, 10240],
+  "records": 256,
+  "config_overrides": {
+    "trace_request_generator_config_trace_file": "../../../tasks/simai_gym/azure2023_chunked_prefill_transfer/hidden/traces/conversation_window_8192_8447.csv"
+  }
+}
