@@ -8,7 +8,11 @@ import os
 import sys
 from pathlib import Path
 
-from mlsysbench.simai_bench.aggregation import aggregate_runs
+from mlsysbench.simai_bench.aggregation import (
+    DEFAULT_BOOTSTRAP_SAMPLES,
+    DEFAULT_PRACTICAL_DELTA,
+    aggregate_runs,
+)
 from mlsysbench.simai_bench.baseline_ladder import (
     run_baseline_ladder,
     validate_baseline_ladder,
@@ -128,7 +132,17 @@ def main() -> None:
     )
     aggregate_parser.add_argument("--runs-dir", required=True)
     aggregate_parser.add_argument("--output", help="Optional aggregate JSON path")
-    aggregate_parser.add_argument("--bootstrap-samples", type=int, default=2000)
+    aggregate_parser.add_argument(
+        "--bootstrap-samples",
+        type=int,
+        default=DEFAULT_BOOTSTRAP_SAMPLES,
+    )
+    aggregate_parser.add_argument(
+        "--practical-delta",
+        type=float,
+        default=DEFAULT_PRACTICAL_DELTA,
+        help="Minimum practically meaningful paired mean-score difference",
+    )
 
     calibration_parser = subparsers.add_parser(
         "analyze-calibration",
@@ -337,6 +351,7 @@ def main() -> None:
         aggregate = aggregate_runs(
             args.runs_dir,
             bootstrap_samples=args.bootstrap_samples,
+            practical_delta=args.practical_delta,
         )
         if args.output:
             write_json(args.output, aggregate)

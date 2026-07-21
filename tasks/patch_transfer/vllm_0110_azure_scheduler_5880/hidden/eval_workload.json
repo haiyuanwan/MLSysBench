@@ -1,0 +1,12 @@
+{
+  "private_bundle": {
+    "bundle_id": "vllm0110_azure_5880_v1",
+    "workload_sha256": "91acae978f7d71729abbe9d8aa44a76fdf172dbcbbe8f72dfbe3aad2fa465f83"
+  },
+  "profiles": [
+    "mixed_prompt_output",
+    "mixed_concurrency"
+  ],
+  "scenario_family": "balanced",
+  "schema_version": 1
+}

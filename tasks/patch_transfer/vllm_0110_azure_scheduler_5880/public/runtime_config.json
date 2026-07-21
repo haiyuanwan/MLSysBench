@@ -1,0 +1,59 @@
+{
+  "expected_vllm_version": "0.11.0",
+  "initial_now_ms": 0.0,
+  "dummy_token_id": 1,
+  "max_model_len": 8192,
+  "max_num_batched_tokens": 512,
+  "max_num_seqs": 32,
+  "max_progress_steps": 1000000,
+  "max_scheduler_wall_ms": 100.0,
+  "scheduler_config": {
+    "max_num_batched_tokens": 512,
+    "max_num_seqs": 32,
+    "max_model_len": 8192,
+    "max_num_partial_prefills": 1,
+    "max_long_partial_prefills": 1,
+    "long_prefill_token_threshold": 0,
+    "enable_chunked_prefill": true,
+    "policy": "fcfs"
+  },
+  "cache_config": {
+    "block_size": 16,
+    "enable_prefix_caching": false,
+    "num_gpu_blocks": 8556
+  },
+  "kv_cache_config": {
+    "num_blocks": 8556,
+    "num_layers": 36,
+    "num_kv_heads": 8,
+    "head_size": 128,
+    "dtype": "bfloat16"
+  },
+  "timing_profile_identity": {
+    "profile_id": "rtx5880_qwen3_8b_vllm0110_tp1_eager",
+    "profile_revision": "pilot-gpu1-r2",
+    "device": {
+      "vendor": "NVIDIA",
+      "model": "NVIDIA RTX5880-Ada-48Q",
+      "compute_capability": "8.9",
+      "gpu_count": 1,
+      "total_memory_bytes": 51223592960
+    },
+    "runtime": {
+      "driver_version": "570.172.18",
+      "cuda_version": "12.8",
+      "python_version": "3.11.15",
+      "torch_version": "2.8.0+cu128",
+      "vllm_revision": "0.11.0",
+      "attention_backend": "FLASH_ATTN_V1",
+      "dtype": "bfloat16",
+      "enforce_eager": true
+    },
+    "model": {
+      "name": "Qwen3-8B",
+      "revision": "config-sha256-deaa300e5384a480c2cafd0db33cba0da89db8eeeb8ddc2b584b89bd46d52ffb",
+      "max_model_len": 8192,
+      "tensor_parallel_size": 1
+    }
+  }
+}

@@ -95,52 +95,58 @@ def plan_matrix(manifest_path: str | Path) -> MatrixPlan:
         raise ConfigError("repeats must be a positive integer")
 
     cells: list[MatrixCell] = []
-    for task_entry, model, scaffold, budget, seed, repeat in itertools.product(
-        tasks, models, scaffolds, budgets, seeds, range(repeats)
-    ):
-        allowed_models = scaffold.get("models")
-        if allowed_models is not None and model["id"] not in allowed_models:
-            continue
-        if scaffold["kind"] == "search" and model.get("name") is not None:
-            continue
-        if scaffold["kind"] == "cli_agent" and not model.get("name"):
-            continue
-        semantic = {
-            "matrix_id": matrix_id,
-            "task": task_entry["id"],
-            "task_sha256": task_entry["task_sha256"],
-            "model": model,
-            "scaffold": scaffold,
-            "budget": budget,
-            "seed": seed,
-            "repeat": repeat,
-            "starting_point": task_entry["starting_point"],
-        }
-        digest = _sha256_json(semantic)[:12]
-        prefix = "__".join(
-            _slug(str(value))
-            for value in (
-                task_entry["id"],
-                model["id"],
-                scaffold["id"],
-                budget["id"],
-                f"s{seed}",
-                f"r{repeat}",
+    non_model_blocks = itertools.product(
+        tasks,
+        scaffolds,
+        budgets,
+        seeds,
+        range(repeats),
+    )
+    for task_entry, scaffold, budget, seed, repeat in non_model_blocks:
+        for model in models:
+            allowed_models = scaffold.get("models")
+            if allowed_models is not None and model["id"] not in allowed_models:
+                continue
+            if scaffold["kind"] == "search" and model.get("name") is not None:
+                continue
+            if scaffold["kind"] == "cli_agent" and not model.get("name"):
+                continue
+            semantic = {
+                "matrix_id": matrix_id,
+                "task": task_entry["id"],
+                "task_sha256": task_entry["task_sha256"],
+                "model": model,
+                "scaffold": scaffold,
+                "budget": budget,
+                "seed": seed,
+                "repeat": repeat,
+                "starting_point": task_entry["starting_point"],
+            }
+            digest = _sha256_json(semantic)[:12]
+            prefix = "__".join(
+                _slug(str(value))
+                for value in (
+                    task_entry["id"],
+                    model["id"],
+                    scaffold["id"],
+                    budget["id"],
+                    f"s{seed}",
+                    f"r{repeat}",
+                )
             )
-        )
-        cells.append(
-            MatrixCell(
-                cell_id=f"{prefix}__{digest}",
-                task_id=task_entry["id"],
-                task_path=task_entry["path"],
-                model=model,
-                scaffold=scaffold,
-                budget=budget,
-                seed=seed,
-                repeat=repeat,
-                starting_point=task_entry["starting_point"],
+            cells.append(
+                MatrixCell(
+                    cell_id=f"{prefix}__{digest}",
+                    task_id=task_entry["id"],
+                    task_path=task_entry["path"],
+                    model=model,
+                    scaffold=scaffold,
+                    budget=budget,
+                    seed=seed,
+                    repeat=repeat,
+                    starting_point=task_entry["starting_point"],
+                )
             )
-        )
     if not cells:
         raise ConfigError("run matrix expands to zero applicable cells")
     cell_ids = [cell.cell_id for cell in cells]
@@ -188,7 +194,7 @@ def run_matrix(
             records.append(_status_record(cell, previous, "resumed_failed"))
             continue
         if max_cells is not None and executed >= max_cells:
-            records.append({"cell_id": cell.cell_id, "state": "deferred"})
+            records.append(_status_record(cell, {"state": "deferred"}, "deferred"))
             continue
 
         cell_dir.mkdir(parents=True, exist_ok=True)
@@ -204,6 +210,9 @@ def run_matrix(
             {
                 "schema_version": 1,
                 "cell_id": cell.cell_id,
+                "dimensions": cell.dimensions(),
+                "seed": cell.seed,
+                "repeat": cell.repeat,
                 "state": "running",
                 "started_at": started_at,
                 "attempt": attempt,
@@ -215,6 +224,7 @@ def run_matrix(
         stderr_path = attempt_dir / "stderr.log"
         environment = os.environ.copy()
         environment["MLSYSBENCH_RUN_SEED"] = str(cell.seed)
+        environment["MLSYSBENCH_RUN_REPEAT"] = str(cell.repeat)
         execution_error: str | None = None
         returncode: int | None = None
         try:
@@ -236,6 +246,9 @@ def run_matrix(
         status = {
             "schema_version": 1,
             "cell_id": cell.cell_id,
+            "dimensions": cell.dimensions(),
+            "seed": cell.seed,
+            "repeat": cell.repeat,
             "state": state,
             "started_at": started_at,
             "completed_at": _timestamp(),
@@ -496,6 +509,8 @@ def _status_record(cell: MatrixCell, status: dict[str, Any], source: str) -> dic
     return {
         "cell_id": cell.cell_id,
         "dimensions": cell.dimensions(),
+        "seed": cell.seed,
+        "repeat": cell.repeat,
         "state": status.get("state", "unknown"),
         "exit_code": status.get("exit_code"),
         "attempt": status.get("attempt"),
@@ -528,10 +543,37 @@ def _write_matrix_result(
 def _write_immutable_json(path: Path, payload: Any) -> None:
     if path.exists():
         existing = load_structured(path)
+        if path.name == "matrix_plan.json" and _equivalent_matrix_plans(existing, payload):
+            return
         if existing != payload:
             raise ConfigError(f"immutable manifest already exists with different content: {path}")
         return
     write_json(path, payload)
+
+
+def _equivalent_matrix_plans(existing: Any, planned: Any) -> bool:
+    """Accept pre-interleave plans when their immutable cell set is unchanged."""
+
+    if not isinstance(existing, dict) or not isinstance(planned, dict):
+        return False
+    existing_without_cells = {key: value for key, value in existing.items() if key != "cells"}
+    planned_without_cells = {key: value for key, value in planned.items() if key != "cells"}
+    if existing_without_cells != planned_without_cells:
+        return False
+    existing_cells = existing.get("cells")
+    planned_cells = planned.get("cells")
+    if not isinstance(existing_cells, list) or not isinstance(planned_cells, list):
+        return False
+    return sorted(existing_cells, key=_plan_cell_sort_key) == sorted(
+        planned_cells,
+        key=_plan_cell_sort_key,
+    )
+
+
+def _plan_cell_sort_key(value: Any) -> str:
+    if not isinstance(value, dict):
+        return json.dumps(value, sort_keys=True, default=str)
+    return str(value.get("cell_id", json.dumps(value, sort_keys=True, default=str)))
 
 
 def _load_optional_object(path: Path) -> dict[str, Any]:

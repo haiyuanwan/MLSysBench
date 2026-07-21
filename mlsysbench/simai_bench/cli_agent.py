@@ -340,7 +340,7 @@ def run_cli_agent(
             *executable_paths,
             *(Path(path) for path in effective_read_paths),
         ]
-        _validate_landlock_read_paths(task_dir, read_only_paths)
+        _validate_private_read_paths(task_dir, read_only_paths)
         _validate_private_write_paths(task_dir, effective_read_write_paths)
 
         def install_landlock() -> None:
@@ -354,12 +354,12 @@ def run_cli_agent(
 
         preexec_fn = install_landlock
     elif isolation == "bwrap":
-        _validate_private_write_paths(task_dir, effective_read_write_paths)
         effective_argv = _wrap_with_bwrap(
             argv,
             workspace,
             task_dir,
             effective_read_write_paths,
+            [*executable_paths, *effective_read_paths],
         )
 
     environment = os.environ.copy()
@@ -948,7 +948,7 @@ def _executable_read_paths(executable: str) -> list[Path]:
     return paths
 
 
-def _validate_landlock_read_paths(
+def _validate_private_read_paths(
     task_dir: Path,
     read_only_paths: Sequence[Path],
 ) -> None:
@@ -962,7 +962,7 @@ def _validate_landlock_read_paths(
         )
         if overlaps:
             raise ConfigError(
-                f"Landlock read-only path overlaps the private task tree: {path}"
+                f"Agent read-only path overlaps the private task tree: {path}"
             )
 
 
@@ -989,36 +989,134 @@ def _wrap_with_bwrap(
     workspace: Path,
     task_dir: Path,
     read_write_paths: Sequence[str | Path] = (),
+    read_only_paths: Sequence[str | Path] = (),
 ) -> list[str]:
+    workspace = workspace.resolve()
+    task_dir = task_dir.resolve()
+    writable = [workspace, *(Path(value).resolve() for value in read_write_paths)]
+    readable = [Path(value).resolve() for value in read_only_paths]
+    _validate_private_write_paths(task_dir, writable)
+    _validate_private_read_paths(task_dir, readable)
+
     command = [
         "bwrap",
         "--die-with-parent",
         "--new-session",
+        "--unshare-user",
         "--unshare-pid",
-        "--ro-bind",
-        "/",
-        "/",
-        "--tmpfs",
-        str(task_dir),
-        "--bind",
-        str(workspace),
-        str(workspace),
-        "--chdir",
-        str(workspace),
+        "--unshare-ipc",
+        "--unshare-uts",
+        "--unshare-cgroup",
+        "--disable-userns",
     ]
-    for value in read_write_paths:
-        path = str(Path(value).resolve())
-        command.extend(["--bind", path, path])
+    for path in _bwrap_system_read_paths():
+        command.extend(["--ro-bind", str(path), str(path)])
+    for path in _bwrap_device_paths():
+        command.extend(["--dev-bind", str(path), str(path)])
+    command.extend(
+        [
+            "--dir",
+            "/proc",
+            "--dir",
+            "/sys",
+            "--dir",
+            "/run",
+            "--dir",
+            "/var",
+            "--tmpfs",
+            "/tmp",
+            "--tmpfs",
+            str(task_dir),
+        ]
+    )
+    system_roots = tuple(path.resolve() for path in _bwrap_system_read_paths())
+    for path in _unique_paths(readable):
+        if not path.exists() or _covered_by(path, system_roots):
+            continue
+        command.extend(["--ro-bind", str(path), str(path)])
+    for path in _unique_paths(writable):
+        command.extend(["--bind", str(path), str(path)])
+    command.extend(["--chdir", str(workspace)])
     command.extend(["--", *argv])
     return command
+
+
+def _bwrap_system_read_paths() -> tuple[Path, ...]:
+    candidates = (
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/lib64",
+        "/etc/alternatives",
+        "/etc/ca-certificates",
+        "/etc/ca-certificates.conf",
+        "/etc/gai.conf",
+        "/etc/gitconfig",
+        "/etc/group",
+        "/etc/host.conf",
+        "/etc/hosts",
+        "/etc/ld.so.cache",
+        "/etc/ld.so.conf",
+        "/etc/ld.so.conf.d",
+        "/etc/localtime",
+        "/etc/nsswitch.conf",
+        "/etc/os-release",
+        "/etc/passwd",
+        "/etc/protocols",
+        "/etc/resolv.conf",
+        "/etc/services",
+        "/etc/ssl/certs",
+        "/etc/ssl/ct_log_list.cnf",
+        "/etc/ssl/ct_log_list.cnf.dist",
+        "/etc/ssl/openssl.cnf",
+        "/etc/timezone",
+    )
+    return tuple(Path(path) for path in candidates if Path(path).exists())
+
+
+def _bwrap_device_paths() -> tuple[Path, ...]:
+    candidates = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom")
+    return tuple(Path(path) for path in candidates if Path(path).exists())
+
+
+def _unique_paths(paths: Sequence[Path]) -> tuple[Path, ...]:
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            result.append(resolved)
+    return tuple(result)
+
+
+def _covered_by(path: Path, roots: Sequence[Path]) -> bool:
+    return any(path == root or root in path.parents for root in roots)
 
 
 def _bwrap_supported() -> bool:
     executable = shutil.which("bwrap")
     if executable is None:
         return False
+    command = [
+        executable,
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-user",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--unshare-uts",
+        "--unshare-cgroup",
+        "--disable-userns",
+    ]
+    for path in _bwrap_system_read_paths():
+        command.extend(["--ro-bind", str(path), str(path)])
+    for path in _bwrap_device_paths():
+        command.extend(["--dev-bind", str(path), str(path)])
+    command.extend(["--dir", "/proc", "--tmpfs", "/tmp", "--", "/usr/bin/true"])
     completed = subprocess.run(
-        [executable, "--die-with-parent", "--ro-bind", "/", "/", "/bin/true"],
+        command,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=5,

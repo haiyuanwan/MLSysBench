@@ -193,8 +193,11 @@ class PythonCodeRunner:
         evaluator_value = task.runner.config.get("evaluator")
         if not isinstance(evaluator_value, str) or not evaluator_value:
             raise ConfigError("python_code runner requires runner.evaluator")
+        shadow_vllm = evaluator_value == "builtin:vllm_scheduler_shadow_v1"
         if evaluator_value == "builtin:scheduler_policy_v1":
             evaluator = Path(__file__).with_name("scheduler_policy_evaluator.py")
+        elif shadow_vllm:
+            evaluator = Path(__file__).with_name("vllm_scheduler_shadow_evaluator.py")
         else:
             evaluator = resolve_task_path(task.task_dir, evaluator_value)
         if not evaluator.is_file():
@@ -220,8 +223,12 @@ class PythonCodeRunner:
                 json.dumps(config, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+            python_value = task.runner.config.get("python_bin", sys.executable)
+            python_bin = _resolve_runner_path(task, python_value)
+            if not python_bin.is_file():
+                raise ConfigError(f"python_code runner does not exist: {python_bin}")
             args = [
-                sys.executable,
+                str(python_bin),
                 "-I",
                 str(evaluator),
                 "--solution-dir",
@@ -233,6 +240,22 @@ class PythonCodeRunner:
                 "--output",
                 str(result_path),
             ]
+            if shadow_vllm:
+                for config_key, option in (
+                    ("timing_profile", "--timing-profile"),
+                    ("runtime_config", "--runtime-config"),
+                ):
+                    path_value = task.runner.config.get(config_key)
+                    if not isinstance(path_value, str) or not path_value:
+                        raise ConfigError(
+                            f"shadow-vLLM runner requires runner.{config_key}"
+                        )
+                    resolved = _resolve_runner_path(task, path_value)
+                    if not resolved.is_file():
+                        raise ConfigError(
+                            f"shadow-vLLM {config_key} does not exist: {resolved}"
+                        )
+                    args.extend([option, str(resolved)])
             env = {
                 "HOME": str(root / "home"),
                 "LANG": "C.UTF-8",
@@ -240,6 +263,10 @@ class PythonCodeRunner:
                 "PYTHONHASHSEED": "0",
                 "TMPDIR": str(root),
             }
+            if shadow_vllm and os.environ.get("MLSYSBENCH_PRIVATE_BUNDLE_ROOT"):
+                env["MLSYSBENCH_PRIVATE_BUNDLE_ROOT"] = os.environ[
+                    "MLSYSBENCH_PRIVATE_BUNDLE_ROOT"
+                ]
             try:
                 completed = subprocess.run(
                     args,

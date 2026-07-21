@@ -2,6 +2,8 @@ import json
 import importlib.util
 import os
 import shutil
+import socket
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,6 +18,7 @@ from mlsysbench.simai_bench.baseline_ladder import validate_baseline_ladder
 from mlsysbench.simai_bench.calibration import analyze_calibration, validate_task_calibration
 from mlsysbench.simai_bench.actions import to_cli_args, validate_changes
 from mlsysbench.simai_bench.cli_agent import (
+    _bwrap_supported,
     _wrap_with_bwrap,
     prepare_public_workspace,
     run_cli_agent,
@@ -679,6 +682,11 @@ class SimAIBenchTest(unittest.TestCase):
         self.assertEqual(second["status_counts"]["deferred"], 2)
         self.assertEqual(second["cells"][0]["source"], "resumed_completed")
         self.assertEqual(first_status["attempt"], 1)
+        self.assertEqual(first_status["seed"], 0)
+        self.assertEqual(first_status["repeat"], 0)
+        self.assertEqual(first_status["dimensions"], first_cell.dimensions())
+        self.assertEqual(first["cells"][0]["seed"], 0)
+        self.assertEqual(first["cells"][0]["repeat"], 0)
         self.assertEqual(resumed_status["attempt"], 1)
 
     def test_run_matrix_rejects_embedded_credentials(self):
@@ -960,6 +968,7 @@ class SimAIBenchTest(unittest.TestCase):
                 workspace,
                 task_dir,
                 [state_dir],
+                [Path(sys.executable)],
             )
 
         workspace_value = str(workspace)
@@ -971,6 +980,162 @@ class SimAIBenchTest(unittest.TestCase):
         chdir = command.index("--chdir")
         self.assertEqual(command[chdir + 1], workspace_value)
         self.assertNotIn("/workspace", command)
+        self.assertNotIn(
+            ["--ro-bind", "/", "/"],
+            [command[index : index + 3] for index in range(len(command) - 2)],
+        )
+        self.assertIn("--disable-userns", command)
+        task_mount = command.index(str(task_dir))
+        self.assertEqual(command[task_mount - 1], "--tmpfs")
+
+    def test_bwrap_rejects_mounts_overlapping_private_task(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            workspace = root / "run" / "workspace"
+            task_dir = root / "private-task"
+            workspace.mkdir(parents=True)
+            task_dir.mkdir()
+
+            with self.assertRaisesRegex(ConfigError, "overlaps the private task tree"):
+                _wrap_with_bwrap(
+                    [sys.executable, "-c", "pass"],
+                    workspace,
+                    task_dir,
+                    read_only_paths=[root],
+                )
+
+    def test_bwrap_allowlist_hides_private_files_and_reaches_local_sidecar(self):
+        if not _bwrap_supported():
+            self.skipTest("bubblewrap is unavailable in this execution environment")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            workspace = root / "run" / "workspace"
+            task_dir = root / "private-task"
+            host_home = root / "host-home"
+            runtime_root = root / "run" / "runtime"
+            proxy_home = runtime_root / "proxy-home"
+            state_dir = runtime_root / "agent-state"
+            for path in (
+                workspace,
+                task_dir,
+                host_home / ".codex",
+                proxy_home / ".cc-switch",
+                state_dir,
+            ):
+                path.mkdir(parents=True)
+            private_paths = (
+                task_dir / "task.json",
+                host_home / ".env",
+                host_home / ".codex" / "auth.json",
+                proxy_home / ".cc-switch" / "config.json",
+            )
+            for path in private_paths:
+                path.write_text("sentinel\n", encoding="utf-8")
+
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.settimeout(10)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            result_path = workspace / "visibility.json"
+            script = "\n".join(
+                [
+                    "import json, pathlib, socket, sys",
+                    "paths = [pathlib.Path(value) for value in sys.argv[1:-2]]",
+                    "state = pathlib.Path(sys.argv[-2])",
+                    "port = int(sys.argv[-1])",
+                    "with socket.create_connection(('127.0.0.1', port), timeout=5) as connection:",
+                    "    connection.sendall(b'sidecar-probe')",
+                    "payload = {",
+                    "    'private_visible': [path.exists() for path in paths],",
+                    "    'workspace_visible': pathlib.Path.cwd().is_dir(),",
+                    "    'state_visible': state.is_dir(),",
+                    "}",
+                    "pathlib.Path('visibility.json').write_text(json.dumps(payload), encoding='utf-8')",
+                ]
+            )
+            command = _wrap_with_bwrap(
+                [
+                    sys.executable,
+                    "-c",
+                    script,
+                    *(str(path) for path in private_paths),
+                    str(state_dir),
+                    str(port),
+                ],
+                workspace,
+                task_dir,
+                [state_dir],
+                [Path(sys.executable)],
+            )
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                connection, _ = listener.accept()
+            except TimeoutError:
+                stdout, stderr = process.communicate(timeout=5)
+                self.fail(
+                    "bwrap agent did not reach the local sidecar: "
+                    f"exit={process.returncode}\nstdout={stdout}\nstderr={stderr}"
+                )
+            finally:
+                listener.close()
+            with connection:
+                probe = connection.recv(64)
+            stdout, stderr = process.communicate(timeout=10)
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(process.returncode, 0, msg=f"stdout={stdout}\nstderr={stderr}")
+        self.assertEqual(probe, b"sidecar-probe")
+        self.assertEqual(payload["private_visible"], [False, False, False, False])
+        self.assertTrue(payload["workspace_visible"])
+        self.assertTrue(payload["state_visible"])
+
+    def test_bwrap_allowlist_runs_pinned_codex_binary_without_model_call(self):
+        if not _bwrap_supported():
+            self.skipTest("bubblewrap is unavailable in this execution environment")
+        codex = ROOT / "runs" / "_runtime" / "codex-0.144.3" / "codex"
+        if not codex.is_file():
+            self.skipTest("pinned Codex runtime asset is unavailable")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            workspace = root / "run" / "workspace"
+            task_dir = root / "private-task"
+            state_dir = root / "run" / "runtime" / "agent-state"
+            for path in (workspace, task_dir, state_dir):
+                path.mkdir(parents=True)
+            command = _wrap_with_bwrap(
+                [str(codex), "--version"],
+                workspace,
+                task_dir,
+                [state_dir],
+                [codex],
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "HOME": str(state_dir),
+                    "CODEX_HOME": str(state_dir),
+                    "TMPDIR": str(state_dir),
+                }
+            )
+            completed = subprocess.run(
+                command,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        self.assertIn("codex-cli 0.144.3", completed.stdout)
 
     def test_cli_agent_enforces_landlock_query_budget_and_clean_final_replay(self):
         private_metrics = SCALE_TASK / "hidden" / "mock_metrics.json"
