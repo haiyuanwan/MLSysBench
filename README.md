@@ -1,5 +1,7 @@
 # MLSysBench
 
+**Paper title:** *Toward Self-Improving ML Systems: Benchmarking AI Agents as Systems Optimizers*
+
 MLSysBench is a simulator-grounded benchmark for studying whether AI agents
 can work as inference-systems engineers. An agent receives a public task,
 allowed configuration actions, simulator feedback, and a fixed experiment
